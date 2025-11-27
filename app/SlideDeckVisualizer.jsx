@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -23,11 +23,68 @@ import {
   Loader2,
 } from "lucide-react";
 
+const HEADER_MAP = {
+  firstName: ["user first name"],
+  lastName: ["user last name"],
+  type: ["type"],
+  title: ["title"],
+  sentDate: ["sent date (utc)", "sent date"],
+};
+
+const splitColumns = (line) =>
+  line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map((col) => col.replace(/^"|"$/g, "").trim());
+
+const findIndex = (headers, keys) => headers.findIndex((header) => keys.some((key) => header === key));
+
+const parseCsv = (text) => {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "");
+  if (!lines.length) return [];
+
+  const headerLine = lines.shift();
+  const headerParts = splitColumns(headerLine).map((h) => h.toLowerCase());
+
+  const firstNameIdx = findIndex(headerParts, HEADER_MAP.firstName);
+  const lastNameIdx = findIndex(headerParts, HEADER_MAP.lastName);
+  const typeIdx = findIndex(headerParts, HEADER_MAP.type);
+  const titleIdx = findIndex(headerParts, HEADER_MAP.title);
+  const sentDateIdx = findIndex(headerParts, HEADER_MAP.sentDate);
+
+  if ([firstNameIdx, lastNameIdx, typeIdx, titleIdx, sentDateIdx].some((idx) => idx === -1)) return [];
+
+  return lines
+    .map((line) => splitColumns(line))
+    .map((cols) => {
+      const firstName = cols[firstNameIdx] || "";
+      const lastName = cols[lastNameIdx] || "";
+      const fullName = `${firstName} ${lastName}`.trim();
+      return {
+        fullName,
+        type: cols[typeIdx] || "",
+        title: cols[titleIdx] || "",
+        sentDate: cols[sentDateIdx] || "",
+      };
+    })
+    .filter((row) => row.fullName);
+};
+
+const isOffender = (row) => {
+  const normalized = row.type.toLowerCase();
+  return normalized === "in progress" || normalized === "not started";
+};
+
+const aggregateOffenders = (rows) =>
+  rows.reduce((acc, row) => {
+    if (!isOffender(row)) return acc;
+    acc[row.fullName] = (acc[row.fullName] || 0) + 1;
+    return acc;
+  }, {});
+
 export default function SlideDeckVisualizer() {
   const [data, setData] = useState([]);
   const [viewMode, setViewMode] = useState("chart"); // chart, grid, summary, ai-report
   const fileInputRef = useRef(null);
   const [fileName, setFileName] = useState("No File Loaded");
+  const [rawRows, setRawRows] = useState([]);
 
   // AI State
   const [aiReport, setAiReport] = useState(null);
@@ -45,7 +102,7 @@ export default function SlideDeckVisualizer() {
   const totalTasks = data.reduce((acc, curr) => acc + curr.value, 0);
   const averageTasks = data.length ? (totalTasks / data.length).toFixed(1) : 0;
 
-  // CSV Parsing Logic
+  // CSV Parsing Logic for Arctic Wolf export
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -55,34 +112,25 @@ export default function SlideDeckVisualizer() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target.result;
-      const rows = text.split("\n");
+      const parsedRows = parseCsv(text);
+      setRawRows(parsedRows);
 
-      const parsedData = rows
-        .map((row) => {
-          // Logic to split by comma but respect quotes if present
-          const columns = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+      const offenderCounts = aggregateOffenders(parsedRows);
+      const parsedData = Object.entries(offenderCounts).map(([name, value]) => ({ name, value }));
 
-          if (columns.length < 2) return null;
-
-          // Clean up quotes and whitespace
-          const name = columns[0].replace(/^"|"$/g, "").trim();
-          const valueString = columns[1].replace(/^"|"$/g, "").trim();
-          const value = parseInt(valueString, 10);
-
-          // Return object only if value is a valid number
-          return { name, value };
-        })
-        .filter((item) => item && item.name && !isNaN(item.value));
-
-      if (parsedData.length > 0) {
-        setData(parsedData);
-        setAiReport(null); // Reset AI report when new data loads
-      } else {
-        alert("Could not parse CSV. Please ensure format is: Name, Value");
-      }
+      setData(parsedData);
+      setAiReport(null); // Reset AI report when new data loads
     };
     reader.readAsText(file);
   };
+
+  const offenderRows = useMemo(() => rawRows.filter(isOffender), [rawRows]);
+  const [selectedUser, setSelectedUser] = useState(null);
+
+  const selectedSessions = useMemo(() => {
+    if (!selectedUser) return [];
+    return offenderRows.filter((row) => row.fullName === selectedUser);
+  }, [offenderRows, selectedUser]);
 
   // Helper to open file dialog
   const triggerUpload = () => {
@@ -237,7 +285,7 @@ export default function SlideDeckVisualizer() {
             <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
               <UploadCloud size={48} className="mb-4 text-gray-300" />
               <p>No data found. Upload a CSV file to begin.</p>
-              <p className="text-sm mt-2">Format: Column 1 (Name), Column 2 (Count)</p>
+              <p className="text-sm mt-2">Upload the Arctic Wolf export; required columns: User First/Last Name, Type, Title, Sent Date (UTC).</p>
             </div>
           ) : (
             <>
@@ -314,6 +362,12 @@ export default function SlideDeckVisualizer() {
                       <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8 gap-4 h-full overflow-auto">
                         {sortedData.map((person, idx) => (
                           <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setSelectedUser(person.name)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") setSelectedUser(person.name);
+                            }}
                             key={idx}
                             className={`p-4 rounded-xl border flex flex-col justify-between items-start transition-all h-full
                               ${
@@ -533,6 +587,71 @@ export default function SlideDeckVisualizer() {
           <p>Tip: Maximize window or zoom out (Ctrl -) to capture high-res screenshots for your slide deck.</p>
         </div>
       </div>
+      <UserModal userName={selectedUser} sessions={selectedSessions} onClose={() => setSelectedUser(null)} />
     </div>
   );
 }
+
+const pendingDays = (sentDate) => {
+  const sent = new Date(sentDate);
+  if (Number.isNaN(sent.getTime())) return "N/A";
+  const diff = Date.now() - sent.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+};
+
+const UserModal = ({ userName, sessions, onClose }) => {
+  if (!userName) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-4">
+      <div className="bg-white w-full max-w-3xl rounded-lg shadow-xl p-6 relative">
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <p className="text-xs uppercase text-gray-400 tracking-wide">User</p>
+            <h2 className="text-2xl font-bold text-gray-900">{userName}</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              {sessions.length} incomplete session{sessions.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-800 transition text-sm font-semibold"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="space-y-3 max-h-[60vh] overflow-auto pr-1">
+          {sessions.map((session, idx) => (
+            <div
+              key={`${session.title}-${idx}`}
+              className="border border-gray-200 rounded-lg p-4 bg-gray-50 flex flex-col gap-1"
+            >
+              <div className="flex justify-between items-center">
+                <p className="font-semibold text-gray-900 truncate" title={session.title}>
+                  {session.title || "Untitled Session"}
+                </p>
+                <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  {session.type || "Unknown"}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                <span className="flex items-center gap-1">
+                  <span className="text-gray-400">Sent:</span> {session.sentDate || "Unknown"}
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="text-gray-400">Pending:</span> {pendingDays(session.sentDate)} days
+                </span>
+              </div>
+            </div>
+          ))}
+          {sessions.length === 0 && (
+            <div className="text-center text-gray-500 py-8">
+              No incomplete sessions found for this user.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
