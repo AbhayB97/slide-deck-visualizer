@@ -79,6 +79,15 @@ const aggregateOffenders = (rows) =>
     return acc;
   }, {});
 
+const shortName = (fullName) => {
+  const parts = fullName.trim().split(/\s+/);
+  if (!parts.length) return fullName;
+  const first = parts[0];
+  const last = parts.length > 1 ? parts[parts.length - 1] : "";
+  const lastInitial = last ? `${last[0].toUpperCase()}.` : "";
+  return `${first} ${lastInitial}`.trim();
+};
+
 export default function SlideDeckVisualizer() {
   const [data, setData] = useState([]);
   const [viewMode, setViewMode] = useState("chart"); // chart, grid, summary, ai-report
@@ -394,7 +403,7 @@ export default function SlideDeckVisualizer() {
 
                             <div className="w-full flex justify-between items-end">
                               <span className="font-medium text-gray-700 truncate w-32" title={person.name}>
-                                {person.name}
+                                {shortName(person.name)}
                               </span>
                               <span
                                 className={`text-3xl font-bold 
