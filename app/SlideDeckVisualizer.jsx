@@ -26,7 +26,7 @@ import {
 const HEADER_MAP = {
   firstName: ["user first name"],
   lastName: ["user last name"],
-  type: ["type"],
+  status: ["status"],
   title: ["title"],
   sentDate: ["sent date (utc)", "sent date"],
 };
@@ -45,11 +45,11 @@ const parseCsv = (text) => {
 
   const firstNameIdx = findIndex(headerParts, HEADER_MAP.firstName);
   const lastNameIdx = findIndex(headerParts, HEADER_MAP.lastName);
-  const typeIdx = findIndex(headerParts, HEADER_MAP.type);
+  const statusIdx = findIndex(headerParts, HEADER_MAP.status);
   const titleIdx = findIndex(headerParts, HEADER_MAP.title);
   const sentDateIdx = findIndex(headerParts, HEADER_MAP.sentDate);
 
-  if ([firstNameIdx, lastNameIdx, typeIdx, titleIdx, sentDateIdx].some((idx) => idx === -1)) return [];
+  if ([firstNameIdx, lastNameIdx, statusIdx, titleIdx, sentDateIdx].some((idx) => idx === -1)) return [];
 
   return lines
     .map((line) => splitColumns(line))
@@ -59,7 +59,7 @@ const parseCsv = (text) => {
       const fullName = `${firstName} ${lastName}`.trim();
       return {
         fullName,
-        type: cols[typeIdx] || "",
+        status: cols[statusIdx] || "",
         title: cols[titleIdx] || "",
         sentDate: cols[sentDateIdx] || "",
       };
@@ -68,7 +68,7 @@ const parseCsv = (text) => {
 };
 
 const isOffender = (row) => {
-  const normalized = row.type.toLowerCase();
+  const normalized = row.status.toLowerCase();
   return normalized === "in progress" || normalized === "not started";
 };
 
@@ -285,7 +285,7 @@ export default function SlideDeckVisualizer() {
             <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
               <UploadCloud size={48} className="mb-4 text-gray-300" />
               <p>No data found. Upload a CSV file to begin.</p>
-              <p className="text-sm mt-2">Upload the Arctic Wolf export; required columns: User First/Last Name, Type, Title, Sent Date (UTC).</p>
+              <p className="text-sm mt-2">Upload the Arctic Wolf export; required columns: User First/Last Name, Status, Title, Sent Date (UTC).</p>
             </div>
           ) : (
             <>
@@ -632,7 +632,7 @@ const UserModal = ({ userName, sessions, onClose }) => {
                   {session.title || "Untitled Session"}
                 </p>
                 <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
-                  {session.type || "Unknown"}
+                  {session.status || "Unknown"}
                 </span>
               </div>
               <div className="flex flex-wrap gap-4 text-sm text-gray-600">
