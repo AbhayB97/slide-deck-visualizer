@@ -23,48 +23,21 @@ import {
   Loader2,
 } from "lucide-react";
 
-// Default demo data (fallback) to show initially
-const demoData = [
-  { name: "Ali A.", value: 3 },
-  { name: "Anthony W.", value: 3 },
-  { name: "Ariana G.", value: 1 },
-  { name: "Benjamin L.", value: 2 },
-  { name: "Charles A.", value: 1 },
-  { name: "Daria K.", value: 2 },
-  { name: "Ebrahim T.", value: 8 },
-  { name: "Feride S.", value: 1 },
-  { name: "Giordan D.", value: 1 },
-  { name: "Huanchao C.", value: 2 },
-  { name: "Jacob P.", value: 2 },
-  { name: "Jeremiah O.", value: 3 },
-  { name: "Jessica R.", value: 2 },
-  { name: "John A.", value: 2 },
-  { name: "Laurie J.", value: 1 },
-  { name: "Meet P.", value: 2 },
-  { name: "Mohamed H.", value: 3 },
-  { name: "Nabiha A.", value: 3 },
-  { name: "Nick A.", value: 1 },
-  { name: "Parsia T.", value: 1 },
-  { name: "Rodolphe K.", value: 1 },
-  { name: "Sia C.", value: 2 },
-  { name: "Summit K.", value: 2 },
-  { name: "Syed G.", value: 1 },
-  { name: "Tahrim N.", value: 6 },
-  { name: "Tara P.", value: 1 },
-  { name: "Vinojan V.", value: 1 },
-  { name: "Vishal P.", value: 7 },
-  { name: "Wenhao F.", value: 1 },
-];
-
 export default function SlideDeckVisualizer() {
-  const [data, setData] = useState(demoData);
+  const [data, setData] = useState([]);
   const [viewMode, setViewMode] = useState("chart"); // chart, grid, summary, ai-report
   const fileInputRef = useRef(null);
-  const [fileName, setFileName] = useState("Demo Data");
+  const [fileName, setFileName] = useState("No File Loaded");
 
   // AI State
   const [aiReport, setAiReport] = useState(null);
   const [loadingAi, setLoadingAi] = useState(false);
+
+  const todayLabel = new Date().toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 
   // Sort data descending so charts look organized
   const sortedData = [...data].sort((a, b) => b.value - a.value);
@@ -199,6 +172,8 @@ export default function SlideDeckVisualizer() {
             <span>Source: {fileName}</span>
             <span className="mx-2">|</span>
             <span>Total Items: {totalTasks}</span>
+            <span className="mx-2">|</span>
+            <span>Date: {todayLabel}</span>
           </div>
         </div>
 
