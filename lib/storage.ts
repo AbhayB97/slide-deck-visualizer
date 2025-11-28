@@ -16,10 +16,12 @@ export async function uploadCsv(buffer: UploadBody, filename: string) {
     contentType: CSV_CONTENT_TYPE,
   });
 
+  const metadata = await head(result.pathname);
+
   return {
     url: result.url,
     pathname: result.pathname,
-    uploadedAt: result.uploadedAt,
+    uploadedAt: metadata.uploadedAt,
   };
 }
 
