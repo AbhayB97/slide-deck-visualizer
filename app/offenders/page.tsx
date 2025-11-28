@@ -7,10 +7,19 @@ import UserModal from "./UserModal";
 import { CsvRow, isOffender } from "./processCsv";
 import { loadHistory, OffenderHistoryItem, updateHistory } from "./historyStore";
 
+type SnapshotHistoryItem = {
+  snapshotId: string;
+  uploadedAt: string;
+  offenderCount: number;
+};
+
 export default function OffendersPage() {
   const [rawRows, setRawRows] = useState<CsvRow[]>([]);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [history, setHistory] = useState<Record<string, OffenderHistoryItem>>({});
+  const [snapshotHistory, setSnapshotHistory] = useState<SnapshotHistoryItem[]>([]);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
+  const [loadingSnapshot, setLoadingSnapshot] = useState(false);
 
   const offenderRows = useMemo(() => rawRows.filter(isOffender), [rawRows]);
 
@@ -26,9 +35,65 @@ export default function OffendersPage() {
   }, []);
 
   useEffect(() => {
+    const fetchLatest = async () => {
+      try {
+        setLoadingSnapshot(true);
+        const res = await fetch("/api/latest-snapshot");
+        if (res.ok) {
+          const data = await res.json();
+          applySnapshot(data);
+        }
+      } finally {
+        setLoadingSnapshot(false);
+      }
+    };
+
+    const fetchHistory = async () => {
+      const res = await fetch("/api/history");
+      if (!res.ok) return;
+      const data = await res.json();
+      setSnapshotHistory(data.history ?? []);
+    };
+
+    fetchLatest();
+    fetchHistory();
+  }, []);
+
+  useEffect(() => {
     if (!offenderRows.length) return;
     setHistory(updateHistory(offenderRows));
   }, [offenderRows]);
+
+  const applySnapshot = (payload: any) => {
+    const parsedRows = payload?.parsedRows ?? payload?.snapshot?.parsedRows ?? [];
+    const snapshotId = payload?.snapshotId ?? payload?.snapshot?.snapshotId ?? null;
+    setSelectedSnapshotId(snapshotId);
+    setSelectedUser(null);
+    setRawRows(
+      parsedRows
+        .map((row: any) => ({
+          fullName: row.fullName ?? "",
+          firstName: row.firstName ?? "",
+          lastName: row.lastName ?? "",
+          type: row.status ?? row.type ?? "",
+          title: row.title ?? "",
+          sentDate: row.sentDate ?? "",
+        }))
+        .filter((row: CsvRow) => row.fullName)
+    );
+  };
+
+  const handleHistoryClick = async (snapshotId: string) => {
+    setLoadingSnapshot(true);
+    try {
+      const res = await fetch(`/api/snapshot?snapshotId=${encodeURIComponent(snapshotId)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      applySnapshot(data.snapshot ?? data);
+    } finally {
+      setLoadingSnapshot(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-100 px-4 py-8 flex justify-center">
@@ -44,6 +109,12 @@ export default function OffendersPage() {
               </p>
             </div>
             <CsvUploader onRowsParsed={setRawRows} />
+            {selectedSnapshotId && (
+              <p className="text-xs text-gray-500">
+                Loaded snapshot: <span className="font-medium">{selectedSnapshotId}</span>
+              </p>
+            )}
+            {loadingSnapshot && <p className="text-xs text-gray-500">Loading snapshot...</p>}
           </div>
         </header>
 
@@ -67,6 +138,35 @@ export default function OffendersPage() {
             </div>
           </div>
           <Heatmap counts={offenderCounts} onSelect={setSelectedUser} />
+        </section>
+
+        <section className="bg-white rounded-2xl shadow-md border border-gray-200 p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-gray-900">History</h2>
+          </div>
+          {snapshotHistory.length === 0 ? (
+            <p className="text-sm text-gray-600">No history yet.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {snapshotHistory.map((item) => (
+                <li
+                  key={item.snapshotId}
+                  className="py-3 flex items-center justify-between hover:bg-gray-50 px-2 rounded-lg cursor-pointer"
+                  onClick={() => handleHistoryClick(item.snapshotId)}
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{item.snapshotId}</p>
+                    <p className="text-xs text-gray-500">
+                      Uploaded: {new Date(item.uploadedAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="text-sm text-gray-700">
+                    {item.offenderCount} incomplete
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
 
