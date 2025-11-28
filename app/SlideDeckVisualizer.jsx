@@ -243,32 +243,53 @@ export default function SlideDeckVisualizer() {
           )}
 
           {/* ---------- HEATMAP VIEW ---------- */}
+          {/* ---------- HEATMAP VIEW ---------- */}
           {viewMode === "grid" && (
             <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4">
-              {sortedData.map((p) => (
-                <div
-                  key={p.name}
-                  onClick={() => setSelectedUser(p.name)}
-                  className="p-4 rounded-xl border cursor-pointer hover:bg-gray-50"
-                >
-                  <div className="flex justify-between items-center">
-                    <span>{shortName(p.name)}</span>
-                    <span className="font-bold text-xl">{p.value}</span>
+              {sortedData.map((p) => {
+                const color =
+                  p.value >= 6
+                    ? "bg-red-50 border-red-300 text-red-700"
+                    : p.value >= 3
+                    ? "bg-amber-50 border-amber-300 text-amber-700"
+                    : "bg-blue-50 border-blue-200 text-blue-700";
+
+                return (
+                  <div
+                    key={p.name}
+                    onClick={() => setSelectedUser(p.name)}
+                    className={`p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition ${color}`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">{shortName(p.name)}</span>
+                      <span className="font-bold text-xl">{p.value}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
+
           {/* ---------- SUMMARY VIEW ---------- */}
           {viewMode === "summary" && (
-            <div>
+            <div className="space-y-2">
               <h2 className="text-xl font-bold mb-4">Executive Summary</h2>
-              <p>Total Incomplete Items: {totalTasks}</p>
-              <p>Users With Incomplete Items: {data.length}</p>
-              <p>Average Per Person: {averageTasks}</p>
+
+              <p className="text-gray-700">
+                <span className="font-semibold">Total Incomplete Items:</span> {totalTasks}
+              </p>
+
+              <p className="text-gray-700">
+                <span className="font-semibold">Users With Incomplete Items:</span> {data.length}
+              </p>
+
+              <p className="text-gray-700">
+                <span className="font-semibold">Average Per Person:</span> {averageTasks}
+              </p>
             </div>
           )}
+
 
           {/* ---------- AI REPORT VIEW ---------- */}
           {viewMode === "ai-report" && (
