@@ -1,6 +1,4 @@
-import { head, list, put } from '@vercel/blob';
-
-type UploadInput = Buffer | ArrayBuffer | ArrayBufferView | Blob | string;
+import { head, list, put, type PutBody } from '@vercel/blob';
 
 const CSV_CONTENT_TYPE = 'text/csv';
 
@@ -8,7 +6,7 @@ function ensureCsvExtension(filename: string) {
   return filename.toLowerCase().endsWith('.csv') ? filename : `${filename}.csv`;
 }
 
-export async function uploadCsv(buffer: UploadInput, filename: string) {
+export async function uploadCsv(buffer: PutBody, filename: string) {
   const pathname = ensureCsvExtension(filename.trim());
   const result = await put(pathname, buffer, {
     access: 'public',
