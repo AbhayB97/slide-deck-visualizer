@@ -118,7 +118,7 @@ export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
   return {
     snapshotId: snapshotPathname,
     snapshotUrl: upload.url,
-    uploadedAt: upload.uploadedAt,
+    uploadedAt: timestamp,
     offenderCount: offenderList.length,
     offenderList,
     incompleteSessions,
