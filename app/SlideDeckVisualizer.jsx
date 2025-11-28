@@ -326,26 +326,47 @@ export default function SlideDeckVisualizer() {
 }
 
 /* ---------- Modal Component ---------- */
-function UserModal({ userName, sessions, onClose }) {
+  function UserModal({ userName, sessions, onClose }) {
   if (!userName) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl">
-        <div className="flex justify-between">
-          <h2 className="text-2xl font-bold">{userName}</h2>
-          <button onClick={onClose} className="text-gray-600">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl border border-gray-200">
+        
+        {/* Header */}
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-900">{userName}</h2>
+          <button
+            onClick={onClose}
+            className="text-sm px-3 py-1 rounded-md bg-gray-200 hover:bg-gray-300"
+          >
             Close
           </button>
         </div>
 
-        <div className="mt-4 space-y-3 max-h-[60vh] overflow-auto">
+        {/* Session list */}
+        <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-2">
           {sessions.map((s, i) => (
-            <div key={i} className="border p-3 bg-gray-50 rounded-lg">
-              <p className="font-semibold">{s.title}</p>
-              <p>Status: {s.status}</p>
-              <p>Sent: {s.sentDate}</p>
-              <p>Pending: {pendingDays(s.sentDate)} days</p>
+            <div
+              key={i}
+              className="p-4 rounded-lg border bg-gray-50 hover:bg-gray-100 transition shadow-sm"
+            >
+              <p className="font-semibold text-gray-900 mb-1">
+                {s.title}
+              </p>
+
+              <p className="text-sm text-gray-700">
+                <span className="font-medium">Status:</span> {s.status}
+              </p>
+
+              <p className="text-sm text-gray-700">
+                <span className="font-medium">Sent:</span> {s.sentDate}
+              </p>
+
+              <p className="text-sm text-gray-700">
+                <span className="font-medium">Pending:</span>{" "}
+                {pendingDays(s.sentDate)} days
+              </p>
             </div>
           ))}
         </div>
