@@ -16,7 +16,7 @@ type ParsedRow = {
 type Snapshot = {
   snapshotId: string;
   snapshotUrl: string;
-  uploadedAt: Date;
+  uploadedAt: string;
   offenderCount: number;
   offenderList: string[];
   incompleteSessions: {
@@ -35,14 +35,14 @@ function parseCsv(text: string): CsvRow[] {
 
   if (lines.length === 0) return [];
 
-  const headers = lines[0].split(',').map((header) => header.trim());
+  const headers = lines[0].split(",").map((h) => h.trim());
 
   return lines.slice(1).map((line) => {
-    const cells = line.split(',').map((cell) => cell.trim());
+    const cells = line.split(",").map((c) => c.trim());
     const row: CsvRow = {};
 
     headers.forEach((header, index) => {
-      row[header] = cells[index] ?? '';
+      row[header] = cells[index] ?? "";
     });
 
     return row;
@@ -51,11 +51,14 @@ function parseCsv(text: string): CsvRow[] {
 
 function buildParsedRows(rows: CsvRow[]): ParsedRow[] {
   return rows.map((row) => {
-    const firstName = row.FirstName ?? row.firstname ?? row.firstName ?? '';
-    const lastName = row.LastName ?? row.lastname ?? row.lastName ?? '';
-    const title = row.Title ?? row.title ?? '';
-    const sentDate = row.SentDate ?? row.sentDate ?? '';
-    const status = row.Status ?? row.status ?? '';
+    const firstName =
+      row["User First Name"] ?? row.FirstName ?? row.firstname ?? "";
+    const lastName =
+      row["User Last Name"] ?? row.LastName ?? row.lastname ?? "";
+    const title = row.Title ?? row.title ?? row["Title"] ?? "";
+    const sentDate =
+      row["Sent Date (UTC)"] ?? row.SentDate ?? row.sentDate ?? "";
+    const status = row.Status ?? row.status ?? "";
 
     return {
       ...row,
@@ -71,34 +74,44 @@ function buildParsedRows(rows: CsvRow[]): ParsedRow[] {
 }
 
 export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
+  // --- 1. Download the CSV ---
   const csvText = await getCsv(fileUrl);
+
+  // --- 2. Parse CSV rows ---
   const rows = parseCsv(csvText);
   const parsedRows = buildParsedRows(rows);
 
+  // --- 3. Build offender list ---
   const offenderList = Array.from(
     new Set(
       parsedRows
+        .filter((row) => row.status === "Not Started" || row.status === "In Progress")
         .map((row) => row.fullName)
-        .filter((name) => Boolean(name))
+        .filter(Boolean)
     )
   );
 
+  // --- 4. Count incomplete sessions ---
   const notStarted = parsedRows.filter(
-    (row) => row.status === 'Not Started'
+    (row) => row.status === "Not Started"
   ).length;
+
   const inProgress = parsedRows.filter(
-    (row) => row.status === 'In Progress'
+    (row) => row.status === "In Progress"
   ).length;
+
   const incompleteSessions = {
     notStarted,
     inProgress,
     total: notStarted + inProgress,
   };
 
+  // --- 5. Snapshot filename ---
   const timestamp = new Date();
-  const datePart = timestamp.toISOString().slice(0, 10);
-  const snapshotPathname = `snapshots/snapshot-${datePart}-${timestamp.getTime()}.json`;
+  const dateTag = timestamp.toISOString().split("T")[0];
+  const snapshotPathname = `snapshots/snapshot-${dateTag}-${timestamp.getTime()}.json`;
 
+  // --- 6. Snapshot payload ---
   const payload = {
     snapshotId: snapshotPathname,
     sourceFileUrl: fileUrl,
@@ -109,16 +122,23 @@ export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
     uploadedAt: timestamp.toISOString(),
   };
 
-  const upload = await put(snapshotPathname, JSON.stringify(payload), {
-    access: 'public',
-    addRandomSuffix: false,
-    contentType: 'application/json',
+  // --- 7. Upload snapshot JSON to Vercel Blob ---
+  const blob = new Blob([JSON.stringify(payload)], {
+    type: "application/json",
   });
 
+  const upload = await put(snapshotPathname, blob, {
+    access: "public",
+    addRandomSuffix: false,
+    contentType: "application/json",
+    token: process.env.BLOB_READ_WRITE_TOKEN, // REQUIRED FOR WRITE
+  });
+
+  // --- 8. Return snapshot summary ---
   return {
     snapshotId: snapshotPathname,
     snapshotUrl: upload.url,
-    uploadedAt: timestamp,
+    uploadedAt: timestamp.toISOString(),
     offenderCount: offenderList.length,
     offenderList,
     incompleteSessions,

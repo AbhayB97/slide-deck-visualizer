@@ -15,17 +15,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const upload = await uploadCsv(arrayBuffer, file.name || 'upload.csv');
+    const result = await uploadCsv(file, file.name || 'upload.csv');
 
     return NextResponse.json({
       success: true,
-      fileUrl: upload.url,
-      fileName: upload.pathname,
-      uploadedAt: upload.uploadedAt,
+      fileUrl: result.url,
+      fileName: result.pathname,
+      uploadedAt: result.uploadedAt,
     });
-  } catch (error) {
-    console.error('[upload-csv]', error);
+  } catch (err) {
+    console.error('[upload-csv] ERROR:', err);
     return NextResponse.json(
       { success: false, error: 'Failed to upload CSV' },
       { status: 500 }

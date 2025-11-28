@@ -18,8 +18,8 @@ export async function POST(request: Request) {
     const snapshot = await processCsvSnapshot(fileUrl);
 
     return NextResponse.json({ success: true, snapshot });
-  } catch (error) {
-    console.error('[process-csv]', error);
+  } catch (err) {
+    console.error('[process-csv] ERROR:', err);
     return NextResponse.json(
       { success: false, error: 'Failed to process CSV' },
       { status: 500 }
