@@ -101,7 +101,7 @@ export async function readHistoryIndex(): Promise<HistoryIndexEntry[]> {
       return [];
     }
     console.error('[history-index] Failed to read index', err);
-    throw err;
+    return [];
   }
 }
 
