@@ -1,37 +1,30 @@
 import { NextResponse } from 'next/server';
-import { fetchSnapshot, listSnapshotBlobs } from '@/lib/snapshots';
+import { fetchSnapshot, listHistoryEntries } from '@/lib/snapshots';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
   try {
-    const blobs = await listSnapshotBlobs();
-    if (!blobs.length) {
-      return NextResponse.json({ success: true, history: [] });
-    }
+    const entries = await listHistoryEntries();
+    const weeks = entries.map((item) => item.weekId);
 
-    const snapshots = await Promise.all(
-      blobs
-        .sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime())
-        .map(async (blob) => {
-          try {
-            const snapshot = await fetchSnapshot(blob.pathname);
-            return snapshot
-              ? {
-                  snapshotId: snapshot.snapshotId,
-                  uploadedAt: snapshot.uploadedAt,
-                  offenderCount: snapshot.offenderCount,
-                }
-              : null;
-          } catch {
-            return null;
-          }
-        })
+    const history = await Promise.all(
+      entries.map(async (entry) => {
+        try {
+          const snapshot = await fetchSnapshot(entry.path);
+          return {
+            weekId: entry.weekId,
+            snapshotId: entry.path,
+            uploadedAt: snapshot?.uploadedAt ?? null,
+            offenderCount: snapshot?.offenderCount ?? null,
+          };
+        } catch {
+          return { weekId: entry.weekId, snapshotId: entry.path };
+        }
+      })
     );
 
-    const history = snapshots.filter(Boolean);
-
-    return NextResponse.json({ success: true, history });
+    return NextResponse.json({ success: true, weeks, history });
   } catch (error) {
     console.error('[history]', error);
     return NextResponse.json(

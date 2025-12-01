@@ -1,4 +1,4 @@
-import { getCsv } from '@/lib/storage';
+import { getCsv, readHistoryIndex, writeHistoryIndex } from '@/lib/storage';
 import { put } from '@vercel/blob';
 
 type CsvRow = Record<string, string>;
@@ -14,6 +14,7 @@ type ParsedRow = {
 } & CsvRow;
 
 type Snapshot = {
+  weekId: string;
   snapshotId: string;
   snapshotUrl: string;
   uploadedAt: string;
@@ -26,6 +27,15 @@ type Snapshot = {
   };
   parsedRows: ParsedRow[];
 };
+
+function getIsoWeekId(timestamp: Date) {
+  const date = new Date(Date.UTC(timestamp.getFullYear(), timestamp.getMonth(), timestamp.getDate()));
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${date.getUTCFullYear()}-Week-${String(weekNo).padStart(2, "0")}`;
+}
 
 function parseCsv(text: string): CsvRow[] {
   const lines = text
@@ -108,11 +118,12 @@ export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
 
   // --- 5. Snapshot filename ---
   const timestamp = new Date();
-  const dateTag = timestamp.toISOString().split("T")[0];
-  const snapshotPathname = `snapshots/snapshot-${dateTag}-${timestamp.getTime()}.json`;
+  const weekId = getIsoWeekId(timestamp);
+  const snapshotPathname = `snapshots/${weekId}.json`;
 
   // --- 6. Snapshot payload ---
   const payload = {
+    weekId,
     snapshotId: snapshotPathname,
     sourceFileUrl: fileUrl,
     offenderCount: offenderList.length,
@@ -135,7 +146,15 @@ export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
   });
 
   // --- 8. Return snapshot summary ---
+  const existingHistory = await readHistoryIndex();
+  const updatedHistory = [
+    ...existingHistory.filter((item) => item.weekId !== weekId),
+    { weekId, path: snapshotPathname },
+  ];
+  await writeHistoryIndex(updatedHistory);
+
   return {
+    weekId,
     snapshotId: snapshotPathname,
     snapshotUrl: upload.url,
     uploadedAt: timestamp.toISOString(),

@@ -1,21 +1,25 @@
 import { NextResponse } from 'next/server';
-import { buildHeatmapCounts, fetchSnapshot } from '@/lib/snapshots';
+import { buildHeatmapCounts, fetchSnapshot, fetchSnapshotByWeek } from '@/lib/snapshots';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    const weekId = searchParams.get('week');
     const snapshotId = searchParams.get('snapshotId');
 
-    if (!snapshotId) {
+    if (!weekId && !snapshotId) {
       return NextResponse.json(
-        { success: false, error: 'snapshotId is required' },
+        { success: false, error: 'week or snapshotId is required' },
         { status: 400 }
       );
     }
 
-    const snapshot = await fetchSnapshot(snapshotId);
+    const snapshot = weekId
+      ? await fetchSnapshotByWeek(weekId)
+      : await fetchSnapshot(snapshotId as string);
+
     if (!snapshot) {
       return NextResponse.json(
         { success: false, error: 'Snapshot not found' },

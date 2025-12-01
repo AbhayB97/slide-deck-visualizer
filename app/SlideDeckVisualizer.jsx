@@ -43,6 +43,8 @@ const pendingDays = (sentDate) => {
 /* ---------- Main Component ---------- */
 export default function SlideDeckVisualizer() {
   const [snapshot, setSnapshot] = useState(null);
+  const [weeks, setWeeks] = useState([]);
+  const [selectedWeek, setSelectedWeek] = useState("");
   const [loadingSnapshot, setLoadingSnapshot] = useState(true);
   const [error, setError] = useState(null);
 
@@ -51,31 +53,57 @@ export default function SlideDeckVisualizer() {
   const [loadingAi, setLoadingAi] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
 
-  /* ---------- Load snapshot on mount ---------- */
+  /* ---------- Load week list on mount ---------- */
   useEffect(() => {
-    async function loadSnapshot() {
+    async function loadHistory() {
       try {
         setLoadingSnapshot(true);
-        const res = await fetch("/api/latest-snapshot");
+        setError(null);
+        const res = await fetch("/api/history");
+        if (!res.ok) throw new Error("Could not load history");
+        const json = await res.json();
+        const availableWeeks = json?.weeks ?? [];
+        if (!availableWeeks.length) {
+          throw new Error("No snapshots found");
+        }
+        setWeeks(availableWeeks);
+        setSelectedWeek((current) => current || availableWeeks[0]);
+      } catch (err) {
+        setError(err.message);
+        setLoadingSnapshot(false);
+      }
+    }
+    loadHistory();
+  }, []);
 
+  /* ---------- Load snapshot for selected week ---------- */
+  useEffect(() => {
+    if (!selectedWeek) return;
+
+    async function loadSnapshotForWeek() {
+      try {
+        setLoadingSnapshot(true);
+        setError(null);
+        const res = await fetch(`/api/snapshot?week=${encodeURIComponent(selectedWeek)}`);
         if (!res.ok) throw new Error("Could not load snapshot");
 
         const json = await res.json();
-
-        // FIXED: Your API does NOT return json.snapshot
-        if (!json?.parsedRows || json.parsedRows.length === 0) {
+        const snapshotData = json?.snapshot ?? json;
+        if (!snapshotData?.parsedRows || snapshotData.parsedRows.length === 0) {
           throw new Error("No snapshot found");
         }
-
-        setSnapshot(json); // store full API response
+        setSelectedUser(null);
+        setSnapshot(snapshotData);
       } catch (err) {
         setError(err.message);
+        setSnapshot(null);
       } finally {
         setLoadingSnapshot(false);
       }
     }
-    loadSnapshot();
-  }, []);
+
+    loadSnapshotForWeek();
+  }, [selectedWeek]);
 
   /* ---------- Derived Data from Snapshot ---------- */
   const parsedRows = snapshot?.parsedRows || [];
@@ -104,11 +132,13 @@ export default function SlideDeckVisualizer() {
     (row) => row.fullName === selectedUser
   );
 
-  const todayLabel = new Date().toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  const uploadedLabel = snapshot?.uploadedAt
+    ? new Date(snapshot.uploadedAt).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    : null;
 
   const barColor = (v) => {
     if (v >= 6) return "#ef4444"; // red
@@ -133,7 +163,7 @@ export default function SlideDeckVisualizer() {
   if (loadingSnapshot) {
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-500">
-        <Loader2 className="animate-spin mr-3" /> Loading dashboard…
+        <Loader2 className="animate-spin mr-3" /> Loading dashboard...
       </div>
     );
   }
@@ -172,14 +202,35 @@ export default function SlideDeckVisualizer() {
               Team Status Overview
             </h1>
             <div className="text-sm text-gray-500 mt-1">
-              <span>Snapshot Date: {todayLabel}</span>
+              <span>Week: {selectedWeek || "—"}</span>
+              {uploadedLabel && (
+                <>
+                  <span className="mx-2">|</span>
+                  <span>Uploaded: {uploadedLabel}</span>
+                </>
+              )}
               <span className="mx-2">|</span>
               <span>Total Items: {totalTasks}</span>
             </div>
           </div>
 
           {/* VIEW SWITCHER */}
-          <div className="flex gap-2 flex-wrap mt-4 xl:mt-0">
+          <div className="flex gap-3 flex-wrap items-center mt-4 xl:mt-0">
+            <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+              <label className="text-sm text-gray-600">Week</label>
+              <select
+                value={selectedWeek}
+                onChange={(e) => setSelectedWeek(e.target.value)}
+                className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                disabled={!weeks.length || loadingSnapshot}
+              >
+                {weeks.map((week) => (
+                  <option key={week} value={week}>
+                    {week}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               onClick={() => setViewMode("chart")}
               className={`px-4 py-2 rounded-lg ${
