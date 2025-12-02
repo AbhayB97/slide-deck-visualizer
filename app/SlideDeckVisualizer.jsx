@@ -7,7 +7,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
   ResponsiveContainer,
   Cell,
 } from "recharts";
@@ -16,7 +15,6 @@ import {
   BarChart2,
   List,
   AlertCircle,
-  Sparkles,
   Loader2,
 } from "lucide-react";
 
@@ -43,67 +41,39 @@ const pendingDays = (sentDate) => {
 /* ---------- Main Component ---------- */
 export default function SlideDeckVisualizer() {
   const [snapshot, setSnapshot] = useState(null);
-  const [weeks, setWeeks] = useState([]);
-  const [selectedWeek, setSelectedWeek] = useState("");
   const [loadingSnapshot, setLoadingSnapshot] = useState(true);
   const [error, setError] = useState(null);
 
   const [viewMode, setViewMode] = useState("chart");
-  const [aiReport, setAiReport] = useState(null);
-  const [loadingAi, setLoadingAi] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
 
-  /* ---------- Load week list on mount ---------- */
-  useEffect(() => {
-    async function loadHistory() {
-      try {
-        setLoadingSnapshot(true);
-        setError(null);
-        const res = await fetch("/api/history");
-        if (!res.ok) throw new Error("Could not load history");
-        const json = await res.json();
-        const availableWeeks = json?.weeks ?? [];
-        if (!availableWeeks.length) {
-          throw new Error("No snapshots found");
-        }
-        setWeeks(availableWeeks);
-        setSelectedWeek((current) => current || availableWeeks[0]);
-      } catch (err) {
-        setError(err.message);
-        setLoadingSnapshot(false);
+  /* ---------- Load the latest snapshot on mount/refresh ---------- */
+  async function loadLatestSnapshot() {
+    try {
+      setLoadingSnapshot(true);
+      setError(null);
+      const res = await fetch("/api/latest-snapshot");
+      if (!res.ok) {
+        throw new Error("No snapshot found. Upload a CSV first.");
       }
+      const json = await res.json();
+      const snapshotData = json?.snapshot ?? json;
+      if (!snapshotData?.parsedRows || snapshotData.parsedRows.length === 0) {
+        throw new Error("No snapshot data available");
+      }
+      setSelectedUser(null);
+      setSnapshot(snapshotData);
+    } catch (err) {
+      setError(err.message);
+      setSnapshot(null);
+    } finally {
+      setLoadingSnapshot(false);
     }
-    loadHistory();
+  }
+
+  useEffect(() => {
+    loadLatestSnapshot();
   }, []);
-
-  /* ---------- Load snapshot for selected week ---------- */
-  useEffect(() => {
-    if (!selectedWeek) return;
-
-    async function loadSnapshotForWeek() {
-      try {
-        setLoadingSnapshot(true);
-        setError(null);
-        const res = await fetch(`/api/snapshot?week=${encodeURIComponent(selectedWeek)}`);
-        if (!res.ok) throw new Error("Could not load snapshot");
-
-        const json = await res.json();
-        const snapshotData = json?.snapshot ?? json;
-        if (!snapshotData?.parsedRows || snapshotData.parsedRows.length === 0) {
-          throw new Error("No snapshot found");
-        }
-        setSelectedUser(null);
-        setSnapshot(snapshotData);
-      } catch (err) {
-        setError(err.message);
-        setSnapshot(null);
-      } finally {
-        setLoadingSnapshot(false);
-      }
-    }
-
-    loadSnapshotForWeek();
-  }, [selectedWeek]);
 
   /* ---------- Derived Data from Snapshot ---------- */
   const parsedRows = snapshot?.parsedRows || [];
@@ -146,19 +116,6 @@ export default function SlideDeckVisualizer() {
     return "#3b82f6"; // blue
   };
 
-  /* ---------- AI Report (placeholder) ---------- */
-  async function generateAIReport() {
-    setLoadingAi(true);
-    try {
-      // Replace with real Gemini call later
-      setAiReport(
-        `AI Report Summary\n\nOffenders: ${JSON.stringify(data, null, 2)}`
-      );
-    } finally {
-      setLoadingAi(false);
-    }
-  }
-
   /* ---------- UI States ---------- */
   if (loadingSnapshot) {
     return (
@@ -177,6 +134,12 @@ export default function SlideDeckVisualizer() {
         <p className="text-sm mt-4 text-gray-500">
           Make sure an admin uploaded a CSV via <code>/admin/upload</code>.
         </p>
+        <button
+          onClick={loadLatestSnapshot}
+          className="mt-6 px-4 py-2 bg-blue-600 text-white rounded-md"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -194,7 +157,6 @@ export default function SlideDeckVisualizer() {
   return (
     <div className="min-h-screen bg-gray-100 px-6 py-6 flex justify-center font-sans">
       <div className="w-full max-w-[1920px] flex flex-col gap-6">
-
         {/* HEADER */}
         <div className="bg-white px-6 py-4 rounded-2xl shadow-sm border flex flex-col xl:flex-row justify-between">
           <div>
@@ -202,13 +164,7 @@ export default function SlideDeckVisualizer() {
               Team Status Overview
             </h1>
             <div className="text-sm text-gray-500 mt-1">
-              <span>Week: {selectedWeek || "—"}</span>
-              {uploadedLabel && (
-                <>
-                  <span className="mx-2">|</span>
-                  <span>Uploaded: {uploadedLabel}</span>
-                </>
-              )}
+              {uploadedLabel && <span>Uploaded: {uploadedLabel}</span>}
               <span className="mx-2">|</span>
               <span>Total Items: {totalTasks}</span>
             </div>
@@ -216,21 +172,6 @@ export default function SlideDeckVisualizer() {
 
           {/* VIEW SWITCHER */}
           <div className="flex gap-3 flex-wrap items-center mt-4 xl:mt-0">
-            <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-              <label className="text-sm text-gray-600">Week</label>
-              <select
-                value={selectedWeek}
-                onChange={(e) => setSelectedWeek(e.target.value)}
-                className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
-                disabled={!weeks.length || loadingSnapshot}
-              >
-                {weeks.map((week) => (
-                  <option key={week} value={week}>
-                    {week}
-                  </option>
-                ))}
-              </select>
-            </div>
             <button
               onClick={() => setViewMode("chart")}
               className={`px-4 py-2 rounded-lg ${
@@ -262,21 +203,16 @@ export default function SlideDeckVisualizer() {
               <List size={16} /> Summary
             </button>
             <button
-              onClick={() => setViewMode("ai-report")}
-              className={`px-4 py-2 rounded-lg border ${
-                viewMode === "ai-report"
-                  ? "bg-purple-600 text-white"
-                  : "bg-purple-50 text-purple-700"
-              }`}
+              onClick={loadLatestSnapshot}
+              className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700"
             >
-              <Sparkles size={16} /> AI Report
+              Refresh
             </button>
           </div>
         </div>
 
         {/* MAIN CARD */}
         <div className="bg-white p-10 rounded-2xl shadow-lg border flex-1">
-
           {/* ---------- CHART VIEW ---------- */}
           {viewMode === "chart" && (
             <ResponsiveContainer width="100%" height={800}>
@@ -293,7 +229,6 @@ export default function SlideDeckVisualizer() {
             </ResponsiveContainer>
           )}
 
-          {/* ---------- HEATMAP VIEW ---------- */}
           {/* ---------- HEATMAP VIEW ---------- */}
           {viewMode === "grid" && (
             <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4">
@@ -321,7 +256,6 @@ export default function SlideDeckVisualizer() {
             </div>
           )}
 
-
           {/* ---------- SUMMARY VIEW ---------- */}
           {viewMode === "summary" && (
             <div className="space-y-2">
@@ -340,29 +274,6 @@ export default function SlideDeckVisualizer() {
               </p>
             </div>
           )}
-
-
-          {/* ---------- AI REPORT VIEW ---------- */}
-          {viewMode === "ai-report" && (
-            <div>
-              <button
-                onClick={generateAIReport}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg"
-              >
-                Generate AI Summary
-              </button>
-
-              {loadingAi && (
-                <p className="mt-4 text-purple-600">Generating...</p>
-              )}
-
-              {!loadingAi && aiReport && (
-                <pre className="mt-4 p-4 bg-purple-50 border rounded whitespace-pre-wrap">
-                  {aiReport}
-                </pre>
-              )}
-            </div>
-          )}
         </div>
 
         {/* ---------- USER MODAL ---------- */}
@@ -377,13 +288,12 @@ export default function SlideDeckVisualizer() {
 }
 
 /* ---------- Modal Component ---------- */
-  function UserModal({ userName, sessions, onClose }) {
+function UserModal({ userName, sessions, onClose }) {
   if (!userName) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
       <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl border border-gray-200">
-        
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-bold text-gray-900">{userName}</h2>

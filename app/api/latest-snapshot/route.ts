@@ -1,28 +1,14 @@
 import { NextResponse } from 'next/server';
-import { buildHeatmapCounts, fetchSnapshot, listHistoryEntries, listSnapshotBlobs } from '@/lib/snapshots';
+import { buildHeatmapCounts, fetchSnapshot } from '@/lib/snapshots';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
   try {
-    const entries = await listHistoryEntries();
-    let snapshotPath = entries[0]?.path;
-
-    if (!snapshotPath) {
-      const blobs = await listSnapshotBlobs();
-      if (!blobs.length) {
-        return NextResponse.json(
-          { success: false, error: 'No snapshots found' },
-          { status: 404 }
-        );
-      }
-      snapshotPath = blobs.sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime())[0].pathname;
-    }
-
-    const snapshot = snapshotPath ? await fetchSnapshot(snapshotPath) : null;
+    const snapshot = await fetchSnapshot();
     if (!snapshot) {
       return NextResponse.json(
-        { success: false, error: 'Snapshot not found' },
+        { success: false, error: 'No snapshot available' },
         { status: 404 }
       );
     }
