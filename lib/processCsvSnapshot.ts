@@ -44,14 +44,15 @@ function isIncomplete(status: string) {
 }
 
 function parseCsv(text: string): Record<string, string>[] {
-  const { records, info } = parse<Record<string, string>>(text, {
+  const records = parse(text, {
     bom: true,
     columns: (headers: string[]) => headers.map((h) => h?.trim().toLowerCase()),
     skip_empty_lines: true,
     relax_column_count: true,
     info: true,
-  }) as unknown as { records: Record<string, string>[]; info?: { columns?: string[] } };
+  }) as (Record<string, string>[] & { info?: { columns?: string[] } });
 
+  const info = (records as any)?.info as { columns?: string[] } | undefined;
   const headers = new Set((info?.columns ?? []).map((h) => h.toLowerCase()));
   for (const { key, label } of REQUIRED_HEADERS) {
     if (!headers.has(key)) {
