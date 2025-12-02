@@ -1,4 +1,5 @@
 import { put } from '@vercel/blob';
+import { parse } from 'csv-parse/sync';
 import { getCsv, SNAPSHOT_PATH } from '@/lib/storage';
 
 export type ParsedRow = {
@@ -26,6 +27,14 @@ export type Snapshot = {
 
 const INCOMPLETE_STATUSES = ['not started', 'in progress'];
 
+const REQUIRED_HEADERS: { key: string; label: string }[] = [
+  { key: 'user first name', label: 'User First Name' },
+  { key: 'user last name', label: 'User Last Name' },
+  { key: 'status', label: 'Status' },
+  { key: 'title', label: 'Title' },
+  { key: 'sent date (utc)', label: 'Sent Date (UTC)' },
+];
+
 function normalize(value: string | undefined | null) {
   return (value ?? '').trim();
 }
@@ -34,24 +43,23 @@ function isIncomplete(status: string) {
   return INCOMPLETE_STATUSES.includes(status.toLowerCase());
 }
 
-function parseCsv(text: string) {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+function parseCsv(text: string): Record<string, string>[] {
+  const { records, info } = parse(text, {
+    bom: true,
+    columns: (header: string) => header?.trim().toLowerCase(),
+    skip_empty_lines: true,
+    relax_column_count: true,
+    info: true,
+  }) as unknown as { records: Record<string, string>[]; info?: { columns?: string[] } };
 
-  if (lines.length < 2) return [];
+  const headers = new Set((info?.columns ?? []).map((h) => h.toLowerCase()));
+  for (const { key, label } of REQUIRED_HEADERS) {
+    if (!headers.has(key)) {
+      throw new Error(`Invalid CSV format: missing column "${label}"`);
+    }
+  }
 
-  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
-
-  return lines.slice(1).map((line) => {
-    const cells = line.split(',').map((c) => c.trim());
-    const row: Record<string, string> = {};
-    headers.forEach((header, index) => {
-      row[header] = cells[index] ?? '';
-    });
-    return row;
-  });
+  return records;
 }
 
 function buildParsedRows(rows: Record<string, string>[]): ParsedRow[] {

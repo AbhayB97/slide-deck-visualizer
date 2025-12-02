@@ -24,10 +24,12 @@ export async function POST(request: Request) {
       snapshot,
     });
   } catch (err: any) {
+    const message = err?.message || 'Failed to process CSV';
     console.error('[process-csv] ERROR:', err);
+    const status = message?.startsWith('Invalid CSV format') ? 400 : 500;
     return NextResponse.json(
-      { success: false, error: err?.message || 'Failed to process CSV' },
-      { status: 500 }
+      { success: false, error: message },
+      { status }
     );
   }
 }
