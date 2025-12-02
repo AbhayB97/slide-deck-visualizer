@@ -29,6 +29,15 @@ function isSnapshotFile(pathname: string) {
   return pathname.startsWith(SNAPSHOT_PREFIX) && pathname.toLowerCase().endsWith('.json');
 }
 
+function toDate(value: unknown) {
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+}
+
 export async function listSnapshotBlobs(): Promise<SnapshotBlob[]> {
   const { blobs } = await list({ prefix: SNAPSHOT_PREFIX, limit: 1000, token: process.env.BLOB_READ_WRITE_TOKEN });
   return blobs
@@ -36,7 +45,7 @@ export async function listSnapshotBlobs(): Promise<SnapshotBlob[]> {
     .map((blob) => ({
       url: blob.url,
       pathname: blob.pathname,
-      uploadedAt: blob.uploadedAt,
+      uploadedAt: toDate(blob.uploadedAt) ?? new Date(0),
       downloadUrl: blob.downloadUrl,
     }));
 }
@@ -66,6 +75,7 @@ export function compareWeekIdsDesc(a: string, b: string) {
 export async function fetchSnapshot(snapshotId: string): Promise<SnapshotFile | null> {
   const metadata = await head(snapshotId, { token: process.env.BLOB_READ_WRITE_TOKEN });
   if (!isSnapshotFile(metadata.pathname)) return null;
+  const uploadedAt = toDate((metadata as any).uploadedAt);
 
   const response = await fetch(metadata.downloadUrl);
   if (!response.ok) {
@@ -78,7 +88,7 @@ export async function fetchSnapshot(snapshotId: string): Promise<SnapshotFile | 
   return {
     weekId: derivedWeekId,
     snapshotId: metadata.pathname,
-    uploadedAt: metadata.uploadedAt.toISOString(),
+    uploadedAt: (uploadedAt ?? new Date()).toISOString(),
     offenderCount: data.offenderCount ?? 0,
     offenderList: data.offenderList ?? [],
     parsedRows: data.parsedRows ?? [],
