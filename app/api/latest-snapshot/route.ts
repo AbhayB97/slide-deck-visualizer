@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { buildHeatmapCounts, fetchSnapshot } from '@/lib/snapshots';
+import { fetchSnapshot } from '@/lib/snapshots';
 
 export const runtime = 'nodejs';
 
@@ -13,20 +13,9 @@ export async function GET() {
       );
     }
 
-    const parsedRows = snapshot.parsedRows ?? [];
-    const offenderList = snapshot.offenderList ?? [];
-    const offenderCount = snapshot.offenderCount ?? offenderList.length ?? 0;
-    const heatmap = buildHeatmapCounts(parsedRows);
-
     return NextResponse.json({
       success: true,
-      weekId: snapshot.weekId,
-      snapshotId: snapshot.snapshotId,
-      uploadedAt: snapshot.uploadedAt,
-      parsedRows,
-      offenderCount,
-      offenderList,
-      heatmap,
+      snapshot,
     });
   } catch (error) {
     console.error('[latest-snapshot]', error);

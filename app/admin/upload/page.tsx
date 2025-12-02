@@ -11,12 +11,15 @@ type UploadResponse = {
 
 type SnapshotResponse = {
   success: boolean;
+  snapshotPath?: string;
+  offenderCount?: number;
   snapshot?: {
     snapshotId: string;
     snapshotUrl: string;
     uploadedAt: string;
     offenderCount: number;
   };
+  error?: string;
 };
 
 export default function AdminUploadPage() {
@@ -46,7 +49,7 @@ export default function AdminUploadPage() {
       });
       const data: UploadResponse = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data as unknown as string);
+        throw new Error((data as any)?.error || "Upload failed");
       }
       setUploadResult(data);
     } catch (err) {
@@ -69,7 +72,7 @@ export default function AdminUploadPage() {
       });
       const data: SnapshotResponse = await res.json();
       if (!res.ok || !data.success || !data.snapshot) {
-        throw new Error("Processing failed");
+        throw new Error(data.error || "Processing failed");
       }
       setSnapshotMessage(
         `Snapshot created: ${data.snapshot.snapshotId} (${data.snapshot.offenderCount} incomplete)`

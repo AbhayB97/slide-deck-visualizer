@@ -17,11 +17,16 @@ export async function POST(request: Request) {
 
     const snapshot = await processCsvSnapshot(fileUrl);
 
-    return NextResponse.json({ success: true, snapshot });
-  } catch (err) {
+    return NextResponse.json({
+      success: true,
+      snapshotPath: snapshot.snapshotId,
+      offenderCount: snapshot.offenderCount,
+      snapshot,
+    });
+  } catch (err: any) {
     console.error('[process-csv] ERROR:', err);
     return NextResponse.json(
-      { success: false, error: 'Failed to process CSV' },
+      { success: false, error: err?.message || 'Failed to process CSV' },
       { status: 500 }
     );
   }

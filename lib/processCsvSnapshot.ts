@@ -1,146 +1,128 @@
-import { getCsv } from '@/lib/storage';
 import { put } from '@vercel/blob';
+import { getCsv, SNAPSHOT_PATH } from '@/lib/storage';
 
-type CsvRow = Record<string, string>;
-
-type ParsedRow = {
+export type ParsedRow = {
   fullName: string;
   firstName: string;
   lastName: string;
   title: string;
   sentDate: string;
   status: string;
-  type: string;
-} & CsvRow;
+};
 
-type Snapshot = {
+export type Snapshot = {
   snapshotId: string;
   snapshotUrl: string;
   uploadedAt: string;
   offenderCount: number;
   offenderList: string[];
+  parsedRows: ParsedRow[];
   incompleteSessions: {
     notStarted: number;
     inProgress: number;
     total: number;
   };
-  parsedRows: ParsedRow[];
 };
 
-function parseCsv(text: string): CsvRow[] {
+const INCOMPLETE_STATUSES = ['not started', 'in progress'];
+
+function normalize(value: string | undefined | null) {
+  return (value ?? '').trim();
+}
+
+function isIncomplete(status: string) {
+  return INCOMPLETE_STATUSES.includes(status.toLowerCase());
+}
+
+function parseCsv(text: string) {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
 
-  if (lines.length === 0) return [];
+  if (lines.length < 2) return [];
 
-  const headers = lines[0].split(",").map((h) => h.trim());
+  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
 
   return lines.slice(1).map((line) => {
-    const cells = line.split(",").map((c) => c.trim());
-    const row: CsvRow = {};
-
+    const cells = line.split(',').map((c) => c.trim());
+    const row: Record<string, string> = {};
     headers.forEach((header, index) => {
-      row[header] = cells[index] ?? "";
+      row[header] = cells[index] ?? '';
     });
-
     return row;
   });
 }
 
-function buildParsedRows(rows: CsvRow[]): ParsedRow[] {
-  return rows.map((row) => {
-    const firstName =
-      row["User First Name"] ?? row.FirstName ?? row.firstname ?? "";
-    const lastName =
-      row["User Last Name"] ?? row.LastName ?? row.lastname ?? "";
-    const title = row.Title ?? row.title ?? row["Title"] ?? "";
-    const sentDate =
-      row["Sent Date (UTC)"] ?? row.SentDate ?? row.sentDate ?? "";
-    const status = row.Status ?? row.status ?? "";
+function buildParsedRows(rows: Record<string, string>[]): ParsedRow[] {
+  return rows
+    .map((row) => {
+      const firstName = normalize(row['user first name']);
+      const lastName = normalize(row['user last name']);
+      const status = normalize(row['status']);
+      if (!firstName && !lastName) return null;
+      if (!status) return null;
 
-    return {
-      ...row,
-      fullName: `${firstName} ${lastName}`.trim(),
-      firstName,
-      lastName,
-      title,
-      sentDate,
-      status,
-      type: status,
-    };
-  });
+      const fullName = `${firstName} ${lastName}`.trim();
+      const sentDate = normalize(row['sent date (utc)']);
+      const title = normalize(row['title']);
+
+      return {
+        fullName,
+        firstName,
+        lastName,
+        title,
+        sentDate,
+        status,
+      };
+    })
+    .filter(Boolean)
+    .filter((row) => isIncomplete((row as ParsedRow).status)) as ParsedRow[];
 }
 
 export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
-  // --- 1. Download the CSV ---
   const csvText = await getCsv(fileUrl);
-
-  // --- 2. Parse CSV rows ---
   const rows = parseCsv(csvText);
   const parsedRows = buildParsedRows(rows);
 
-  // --- 3. Build offender list ---
   const offenderList = Array.from(
-    new Set(
-      parsedRows
-        .filter((row) => row.status === "Not Started" || row.status === "In Progress")
-        .map((row) => row.fullName)
-        .filter(Boolean)
-    )
+    new Set(parsedRows.map((row) => row.fullName).filter(Boolean))
   );
 
-  // --- 4. Count incomplete sessions ---
   const notStarted = parsedRows.filter(
-    (row) => row.status === "Not Started"
+    (row) => row.status.toLowerCase() === 'not started'
   ).length;
-
   const inProgress = parsedRows.filter(
-    (row) => row.status === "In Progress"
+    (row) => row.status.toLowerCase() === 'in progress'
   ).length;
 
-  const incompleteSessions = {
-    notStarted,
-    inProgress,
-    total: notStarted + inProgress,
-  };
-
-  // --- 5. Snapshot filename ---
-  const timestamp = new Date();
-  const snapshotPathname = `snapshots/latest.json`;
-
-  // --- 6. Snapshot payload ---
-  const payload = {
-    snapshotId: snapshotPathname,
-    sourceFileUrl: fileUrl,
+  const payload: Snapshot = {
+    snapshotId: SNAPSHOT_PATH,
+    snapshotUrl: '', // populated after upload
+    uploadedAt: new Date().toISOString(),
     offenderCount: offenderList.length,
     offenderList,
-    incompleteSessions,
     parsedRows,
-    uploadedAt: timestamp.toISOString(),
+    incompleteSessions: {
+      notStarted,
+      inProgress,
+      total: notStarted + inProgress,
+    },
   };
 
-  // --- 7. Upload snapshot JSON to Vercel Blob ---
   const blob = new Blob([JSON.stringify(payload)], {
-    type: "application/json",
+    type: 'application/json',
   });
 
-  const upload = await put(snapshotPathname, blob, {
-    access: "public",
+  const uploaded = await put(SNAPSHOT_PATH, blob, {
+    access: 'public',
     addRandomSuffix: false,
-    contentType: "application/json",
-    token: process.env.BLOB_READ_WRITE_TOKEN, // REQUIRED FOR WRITE
+    contentType: 'application/json',
+    token: process.env.BLOB_READ_WRITE_TOKEN,
   });
 
-  // --- 8. Return snapshot summary ---
   return {
-    snapshotId: snapshotPathname,
-    snapshotUrl: upload.url,
-    uploadedAt: timestamp.toISOString(),
-    offenderCount: offenderList.length,
-    offenderList,
-    incompleteSessions,
-    parsedRows,
+    ...payload,
+    snapshotUrl: uploaded.url,
   };
 }
