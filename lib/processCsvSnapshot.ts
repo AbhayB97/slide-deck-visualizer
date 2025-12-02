@@ -44,9 +44,9 @@ function isIncomplete(status: string) {
 }
 
 function parseCsv(text: string): Record<string, string>[] {
-  const { records, info } = parse(text, {
+  const { records, info } = parse<Record<string, string>>(text, {
     bom: true,
-    columns: (header: string) => header?.trim().toLowerCase(),
+    columns: (headers: string[]) => headers.map((h) => h?.trim().toLowerCase()),
     skip_empty_lines: true,
     relax_column_count: true,
     info: true,
