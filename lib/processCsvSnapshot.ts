@@ -155,6 +155,7 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
   const uploaded = await put(snapshotPath, blob, {
     access: 'public',
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: 'application/json',
     token: process.env.BLOB_READ_WRITE_TOKEN,
   });
@@ -163,6 +164,7 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
   await put(SNAPSHOT_PATH, blob, {
     access: 'public',
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: 'application/json',
     token: process.env.BLOB_READ_WRITE_TOKEN,
   });
