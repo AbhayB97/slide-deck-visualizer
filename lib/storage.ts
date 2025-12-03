@@ -43,16 +43,32 @@ export async function uploadCsv(file: File, filename: string): Promise<UploadedF
 export async function getCsv(urlOrPath: string): Promise<string> {
   try {
     const isUrl = /^https?:\/\//i.test(urlOrPath);
-    const downloadUrl = isUrl
-      ? urlOrPath
-      : (await head(urlOrPath, { token: process.env.BLOB_READ_WRITE_TOKEN })).downloadUrl;
+    const fetchDirect = async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Failed to download CSV: ${res.status} ${res.statusText}`);
+      }
+      return res.text();
+    };
 
-    const response = await fetch(downloadUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to download CSV: ${response.status} ${response.statusText}`);
+    if (!isUrl) {
+      const downloadUrl = (await head(urlOrPath, { token: process.env.BLOB_READ_WRITE_TOKEN })).downloadUrl;
+      return await fetchDirect(downloadUrl);
     }
 
-    return await response.text();
+    try {
+      return await fetchDirect(urlOrPath);
+    } catch (directErr: any) {
+      // Fallback: derive pathname from blob URL and resolve via head (handles moved/regioned blobs)
+      try {
+        const pathname = new URL(urlOrPath).pathname.replace(/^\/+/, '');
+        const downloadUrl = (await head(pathname, { token: process.env.BLOB_READ_WRITE_TOKEN })).downloadUrl;
+        return await fetchDirect(downloadUrl);
+      } catch (fallbackErr: any) {
+        console.error('[storage:getCsv] direct fetch failed, fallback failed', fallbackErr);
+        throw directErr;
+      }
+    }
   } catch (err) {
     console.error('[storage:getCsv] Failed to read CSV', err);
     throw err;
