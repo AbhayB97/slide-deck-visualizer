@@ -40,8 +40,6 @@ const HEADER_ALIASES: Record<
   sentDate: ['Sent Date (UTC)', 'Sent Date', 'SentDate', 'Assigned Date'],
 };
 
-type HeaderMatchMap = Record<keyof typeof HEADER_ALIASES, string[]>;
-
 function normalize(value: string | undefined | null) {
   return (value ?? '').trim();
 }
@@ -52,6 +50,10 @@ function normalizeHeaderKey(raw: string | undefined | null) {
   const collapsed = withoutQuotes.replace(/\s+/g, ' ').toLowerCase();
   const compact = collapsed.replace(/[^a-z0-9]+/g, '');
   return compact;
+}
+
+function isIncomplete(status: string) {
+  return INCOMPLETE_STATUSES.includes(status.toLowerCase());
 }
 
 function buildAliasLookup(): {
