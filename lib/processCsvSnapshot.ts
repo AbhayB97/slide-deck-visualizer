@@ -90,11 +90,17 @@ function getField(row: Record<string, string>, aliases: string[]) {
 }
 
 function parseCsv(text: string): Record<string, string>[] {
+  const firstLine = text.split(/\r?\n/)[0] ?? '';
+  const tabCount = (firstLine.match(/\t/g) || []).length;
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const delimiter = tabCount > commaCount ? '\t' : ',';
+
   const records = parse(text, {
     bom: true,
     columns: (headers: string[]) => headers.map((h) => normalizeHeaderKey(h)),
     skip_empty_lines: true,
     relax_column_count: true,
+    delimiter,
     info: true,
   }) as (Record<string, string>[] & { info?: { columns?: string[] } });
 
