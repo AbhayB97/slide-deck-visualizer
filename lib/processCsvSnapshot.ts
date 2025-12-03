@@ -41,6 +41,11 @@ function normalize(value: string | undefined | null) {
   return (value ?? '').trim();
 }
 
+function normalizeHeaderName(value: string | undefined | null) {
+  const cleaned = (value ?? '').replace(/^\uFEFF/, '').trim().toLowerCase();
+  return cleaned;
+}
+
 function isIncomplete(status: string) {
   return INCOMPLETE_STATUSES.includes(status.toLowerCase());
 }
@@ -48,7 +53,7 @@ function isIncomplete(status: string) {
 function parseCsv(text: string): Record<string, string>[] {
   const records = parse(text, {
     bom: true,
-    columns: (headers: string[]) => headers.map((h) => h?.trim().toLowerCase()),
+    columns: (headers: string[]) => headers.map((h) => normalizeHeaderName(h)),
     skip_empty_lines: true,
     relax_column_count: true,
     info: true,
@@ -61,7 +66,7 @@ function parseCsv(text: string): Record<string, string>[] {
       : records.length
       ? Object.keys(records[0])
       : [];
-  const headers = new Set(discoveredHeaders.map((h) => h.toLowerCase()));
+  const headers = new Set(discoveredHeaders.map((h) => normalizeHeaderName(h)));
   for (const { key, label } of REQUIRED_HEADERS) {
     if (!headers.has(key)) {
       throw new Error(`Invalid CSV format: missing column "${label}"`);
