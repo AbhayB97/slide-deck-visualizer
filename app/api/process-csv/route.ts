@@ -26,10 +26,7 @@ export async function POST(request: Request) {
   } catch (err: any) {
     const message = err?.message || 'Failed to process CSV';
     console.error('[process-csv] ERROR:', err);
-    const status = message?.startsWith('Invalid CSV format') ? 400 : 500;
-    return NextResponse.json(
-      { success: false, error: message },
-      { status }
-    );
+    const status = 400;
+    return NextResponse.json({ success: false, error: message }, { status });
   }
 }

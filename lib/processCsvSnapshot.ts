@@ -29,31 +29,70 @@ export type Snapshot = {
 
 const INCOMPLETE_STATUSES = ['not started', 'in progress'];
 
-const REQUIRED_HEADERS: { key: string; label: string }[] = [
-  { key: 'user first name', label: 'User First Name' },
-  { key: 'user last name', label: 'User Last Name' },
-  { key: 'status', label: 'Status' },
-  { key: 'title', label: 'Title' },
-  { key: 'sent date (utc)', label: 'Sent Date (UTC)' },
-];
+const HEADER_ALIASES: Record<
+  'firstName' | 'lastName' | 'status' | 'title' | 'sentDate',
+  string[]
+> = {
+  firstName: ['User First Name', 'First Name', 'FirstName', 'UserFirstName'],
+  lastName: ['User Last Name', 'Last Name', 'LastName', 'UserLastName'],
+  status: ['Status', 'State', 'Training Status'],
+  title: ['Title', 'Session Title', 'Course Name', 'Module Title'],
+  sentDate: ['Sent Date (UTC)', 'Sent Date', 'SentDate', 'Assigned Date'],
+};
+
+type HeaderMatchMap = Record<keyof typeof HEADER_ALIASES, string[]>;
 
 function normalize(value: string | undefined | null) {
   return (value ?? '').trim();
 }
 
-function normalizeHeaderName(value: string | undefined | null) {
-  const cleaned = (value ?? '').replace(/^\uFEFF/, '').trim().toLowerCase();
-  return cleaned;
+function normalizeHeaderKey(raw: string | undefined | null) {
+  const trimmed = (raw ?? '').replace(/^\uFEFF/, '').trim();
+  const withoutQuotes = trimmed.replace(/^["']+|["']+$/g, '');
+  const collapsed = withoutQuotes.replace(/\s+/g, ' ').toLowerCase();
+  const compact = collapsed.replace(/[^a-z0-9]+/g, '');
+  return compact;
 }
 
-function isIncomplete(status: string) {
-  return INCOMPLETE_STATUSES.includes(status.toLowerCase());
+function buildAliasLookup(): {
+  normalizedAliases: Record<keyof typeof HEADER_ALIASES, string[]>;
+  prettyList: Record<keyof typeof HEADER_ALIASES, string>;
+} {
+  const normalizedAliases: Partial<Record<keyof typeof HEADER_ALIASES, string[]>> = {};
+  const prettyList: Partial<Record<keyof typeof HEADER_ALIASES, string>> = {};
+
+  (Object.keys(HEADER_ALIASES) as (keyof typeof HEADER_ALIASES)[]).forEach((key) => {
+    const aliases = HEADER_ALIASES[key];
+    normalizedAliases[key] = aliases.map((a) => normalizeHeaderKey(a));
+    prettyList[key] = aliases.join(', ');
+  });
+
+  return { normalizedAliases: normalizedAliases as Record<keyof typeof HEADER_ALIASES, string[]>, prettyList: prettyList as Record<keyof typeof HEADER_ALIASES, string> };
+}
+
+function ensureRequiredHeaders(headers: Set<string>) {
+  const { normalizedAliases, prettyList } = buildAliasLookup();
+  (Object.keys(normalizedAliases) as (keyof typeof HEADER_ALIASES)[]).forEach((key) => {
+    const hasAlias = normalizedAliases[key].some((alias) => headers.has(alias));
+    if (!hasAlias) {
+      throw new Error(
+        `Missing required column for ${key.replace(/([A-Z])/g, ' $1').toLowerCase()} (tried: ${prettyList[key]})`
+      );
+    }
+  });
+}
+
+function getField(row: Record<string, string>, aliases: string[]) {
+  for (const alias of aliases) {
+    if (alias in row) return normalize(row[alias]);
+  }
+  return '';
 }
 
 function parseCsv(text: string): Record<string, string>[] {
   const records = parse(text, {
     bom: true,
-    columns: (headers: string[]) => headers.map((h) => normalizeHeaderName(h)),
+    columns: (headers: string[]) => headers.map((h) => normalizeHeaderKey(h)),
     skip_empty_lines: true,
     relax_column_count: true,
     info: true,
@@ -66,28 +105,26 @@ function parseCsv(text: string): Record<string, string>[] {
       : records.length
       ? Object.keys(records[0])
       : [];
-  const headers = new Set(discoveredHeaders.map((h) => normalizeHeaderName(h)));
-  for (const { key, label } of REQUIRED_HEADERS) {
-    if (!headers.has(key)) {
-      throw new Error(`Invalid CSV format: missing column "${label}"`);
-    }
-  }
+  const headers = new Set(discoveredHeaders.map((h) => normalizeHeaderKey(h)));
+  ensureRequiredHeaders(headers);
 
   return records;
 }
 
 function buildParsedRows(rows: Record<string, string>[]): ParsedRow[] {
+  const { normalizedAliases } = buildAliasLookup();
+
   return rows
     .map((row) => {
-      const firstName = normalize(row['user first name']);
-      const lastName = normalize(row['user last name']);
-      const status = normalize(row['status']);
+      const firstName = getField(row, normalizedAliases.firstName);
+      const lastName = getField(row, normalizedAliases.lastName);
+      const status = getField(row, normalizedAliases.status);
       if (!firstName && !lastName) return null;
       if (!status) return null;
 
       const fullName = `${firstName} ${lastName}`.trim();
-      const sentDate = normalize(row['sent date (utc)']);
-      const title = normalize(row['title']);
+      const sentDate = getField(row, normalizedAliases.sentDate);
+      const title = getField(row, normalizedAliases.title);
 
       return {
         fullName,
