@@ -93,9 +93,14 @@ function getField(row: Record<string, string>, aliases: string[]) {
 
 function parseCsv(text: string): Record<string, string>[] {
   const firstLine = text.split(/\r?\n/)[0] ?? '';
-  const tabCount = (firstLine.match(/\t/g) || []).length;
-  const commaCount = (firstLine.match(/,/g) || []).length;
-  const delimiter = tabCount > commaCount ? '\t' : ',';
+  const delimiterCounts: Record<string, number> = {
+    ',': (firstLine.match(/,/g) || []).length,
+    '\t': (firstLine.match(/\t/g) || []).length,
+    ';': (firstLine.match(/;/g) || []).length,
+    '|': (firstLine.match(/\|/g) || []).length,
+  };
+  const delimiter =
+    Object.entries(delimiterCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || ',';
 
   const records = parse(text, {
     bom: true,
