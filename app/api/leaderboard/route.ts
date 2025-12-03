@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchHistoryIndex } from '@/lib/history';
 import { buildLeaderboardFromSnapshots, fetchSnapshot } from '@/lib/snapshots';
+import type { Snapshot } from '@/lib/processCsvSnapshot';
 
 export const runtime = 'nodejs';
 
@@ -17,7 +18,7 @@ export async function GET() {
 
     const snapshots = (
       await Promise.all(history.weeks.map((entry) => fetchSnapshot(entry.snapshotPath)))
-    ).filter(Boolean);
+    ).filter((snap): snap is Snapshot => Boolean(snap));
 
     const leaderboard = buildLeaderboardFromSnapshots(snapshots);
 
