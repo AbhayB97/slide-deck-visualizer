@@ -92,36 +92,38 @@ function getField(row: Record<string, string>, aliases: string[]) {
 }
 
 function parseCsv(text: string): Record<string, string>[] {
-  const firstLine = text.split(/\r?\n/)[0] ?? '';
-  const delimiterCounts: Record<string, number> = {
-    ',': (firstLine.match(/,/g) || []).length,
-    '\t': (firstLine.match(/\t/g) || []).length,
-    ';': (firstLine.match(/;/g) || []).length,
-    '|': (firstLine.match(/\|/g) || []).length,
-  };
-  const delimiter =
-    Object.entries(delimiterCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || ',';
+  const delimitersToTry = [',', '\t', ';', '|'];
+  let lastError: Error | null = null;
 
-  const records = parse(text, {
-    bom: true,
-    columns: (headers: string[]) => headers.map((h) => normalizeHeaderKey(h)),
-    skip_empty_lines: true,
-    relax_column_count: true,
-    delimiter,
-    info: true,
-  }) as (Record<string, string>[] & { info?: { columns?: string[] } });
+  for (const delimiter of delimitersToTry) {
+    try {
+      const records = parse(text, {
+        bom: true,
+        columns: (headers: string[]) => headers.map((h) => normalizeHeaderKey(h)),
+        skip_empty_lines: true,
+        relax_column_count: true,
+        delimiter,
+        info: true,
+      }) as (Record<string, string>[] & { info?: { columns?: string[] } });
 
-  const info = (records as any)?.info as { columns?: string[] } | undefined;
-  const discoveredHeaders =
-    info?.columns && info.columns.length
-      ? info.columns
-      : records.length
-      ? Object.keys(records[0])
-      : [];
-  const headers = new Set(discoveredHeaders.map((h) => normalizeHeaderKey(h)));
-  ensureRequiredHeaders(headers);
+      const info = (records as any)?.info as { columns?: string[] } | undefined;
+      const discoveredHeaders =
+        info?.columns && info.columns.length
+          ? info.columns
+          : records.length
+          ? Object.keys(records[0])
+          : [];
+      const headers = new Set(discoveredHeaders.map((h) => normalizeHeaderKey(h)));
+      ensureRequiredHeaders(headers);
 
-  return records;
+      return records;
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  if (lastError) throw lastError;
+  throw new Error('Invalid CSV format: unable to read headers');
 }
 
 function buildParsedRows(rows: Record<string, string>[]): ParsedRow[] {
