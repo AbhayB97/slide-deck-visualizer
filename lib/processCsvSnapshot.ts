@@ -55,7 +55,13 @@ function parseCsv(text: string): Record<string, string>[] {
   }) as (Record<string, string>[] & { info?: { columns?: string[] } });
 
   const info = (records as any)?.info as { columns?: string[] } | undefined;
-  const headers = new Set((info?.columns ?? []).map((h) => h.toLowerCase()));
+  const discoveredHeaders =
+    info?.columns && info.columns.length
+      ? info.columns
+      : records.length
+      ? Object.keys(records[0])
+      : [];
+  const headers = new Set(discoveredHeaders.map((h) => h.toLowerCase()));
   for (const { key, label } of REQUIRED_HEADERS) {
     if (!headers.has(key)) {
       throw new Error(`Invalid CSV format: missing column "${label}"`);
