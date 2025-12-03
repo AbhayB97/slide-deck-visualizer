@@ -1,6 +1,7 @@
 import { put } from '@vercel/blob';
 import { parse } from 'csv-parse/sync';
 import { getCsv, SNAPSHOT_PATH } from '@/lib/storage';
+import { buildSnapshotPath, getIsoWeekId, upsertHistoryEntry } from '@/lib/history';
 
 export type ParsedRow = {
   fullName: string;
@@ -15,6 +16,7 @@ export type Snapshot = {
   snapshotId: string;
   snapshotUrl: string;
   uploadedAt: string;
+  weekId: string;
   offenderCount: number;
   offenderList: string[];
   parsedRows: ParsedRow[];
@@ -93,6 +95,8 @@ export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
   const csvText = await getCsv(fileUrl);
   const rows = parseCsv(csvText);
   const parsedRows = buildParsedRows(rows);
+  const uploadedAt = new Date();
+  const weekId = getIsoWeekId(uploadedAt);
 
   const offenderList = Array.from(
     new Set(parsedRows.map((row) => row.fullName).filter(Boolean))
@@ -106,9 +110,10 @@ export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
   ).length;
 
   const payload: Snapshot = {
-    snapshotId: SNAPSHOT_PATH,
+    snapshotId: buildSnapshotPath(weekId),
     snapshotUrl: '', // populated after upload
-    uploadedAt: new Date().toISOString(),
+    uploadedAt: uploadedAt.toISOString(),
+    weekId,
     offenderCount: offenderList.length,
     offenderList,
     parsedRows,
@@ -123,15 +128,34 @@ export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
     type: 'application/json',
   });
 
-  const uploaded = await put(SNAPSHOT_PATH, blob, {
+  const snapshotPath = buildSnapshotPath(weekId);
+  const uploaded = await put(snapshotPath, blob, {
     access: 'public',
     addRandomSuffix: false,
     contentType: 'application/json',
     token: process.env.BLOB_READ_WRITE_TOKEN,
   });
 
+  // Maintain the legacy "latest" pointer for existing consumers.
+  await put(SNAPSHOT_PATH, blob, {
+    access: 'public',
+    addRandomSuffix: false,
+    contentType: 'application/json',
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  });
+
+  await upsertHistoryEntry({
+    weekId,
+    snapshotPath,
+    snapshotUrl: uploaded.url,
+    uploadedAt: payload.uploadedAt,
+    offenderCount: payload.offenderCount,
+    totalIncomplete: payload.incompleteSessions.total,
+  });
+
   return {
     ...payload,
+    snapshotId: snapshotPath,
     snapshotUrl: uploaded.url,
   };
 }

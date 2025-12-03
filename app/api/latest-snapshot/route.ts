@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { fetchSnapshot } from '@/lib/snapshots';
+import { fetchLatestSnapshot } from '@/lib/snapshots';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
   try {
-    const snapshot = await fetchSnapshot();
+    const snapshot = await fetchLatestSnapshot();
     if (!snapshot) {
       return NextResponse.json(
         { success: false, error: 'No snapshot available' },

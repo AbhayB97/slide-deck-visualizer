@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import {
   BarChart,
   Bar,
@@ -42,27 +43,58 @@ const pendingDays = (sentDate) => {
 export default function SlideDeckVisualizer() {
   const [snapshot, setSnapshot] = useState(null);
   const [loadingSnapshot, setLoadingSnapshot] = useState(true);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [selectedWeek, setSelectedWeek] = useState(null);
 
   const [viewMode, setViewMode] = useState("chart");
   const [selectedUser, setSelectedUser] = useState(null);
 
-  /* ---------- Load the latest snapshot on mount/refresh ---------- */
-  async function loadLatestSnapshot() {
+  const handleTileKeyDown = (event, name) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setSelectedUser(name);
+    }
+  };
+
+  const exportSnapshot = () => {
+    if (!snapshot) return;
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = snapshot.weekId
+      ? `snapshot-${snapshot.weekId}.json`
+      : "snapshot.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /* ---------- Load snapshots & history ---------- */
+  async function loadSnapshot(weekId = null) {
     try {
       setLoadingSnapshot(true);
       setError(null);
-      const res = await fetch("/api/latest-snapshot");
+      const endpoint = weekId
+        ? `/api/snapshot?week=${encodeURIComponent(weekId)}`
+        : "/api/latest-snapshot";
+      const res = await fetch(endpoint);
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error("No snapshot found. Upload a CSV first.");
+        throw new Error(json?.error || "No snapshot found. Upload a CSV first.");
       }
-      const json = await res.json();
       const snapshotData = json?.snapshot ?? json;
       if (!snapshotData?.parsedRows || snapshotData.parsedRows.length === 0) {
         throw new Error("No snapshot data available");
       }
       setSelectedUser(null);
       setSnapshot(snapshotData);
+      if (snapshotData.weekId) {
+        setSelectedWeek(snapshotData.weekId);
+      }
     } catch (err) {
       setError(err.message);
       setSnapshot(null);
@@ -71,9 +103,42 @@ export default function SlideDeckVisualizer() {
     }
   }
 
+  async function loadHistory() {
+    try {
+      setLoadingHistory(true);
+      const res = await fetch("/api/history");
+      if (!res.ok) {
+        throw new Error("Failed to load history");
+      }
+      const json = await res.json();
+      const weeks = json?.history?.weeks ?? [];
+      setHistory(weeks);
+      const newestWeek = weeks[0]?.weekId ?? null;
+      const preferredWeek =
+        selectedWeek && weeks.some((w) => w.weekId === selectedWeek)
+          ? selectedWeek
+          : newestWeek;
+      const targetWeek = preferredWeek ?? null;
+      setSelectedWeek(targetWeek);
+      await loadSnapshot(targetWeek);
+    } catch (err) {
+      setHistory([]);
+      setError(err.message);
+      await loadSnapshot(null);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
   useEffect(() => {
-    loadLatestSnapshot();
+    loadHistory();
   }, []);
+
+  const handleWeekChange = (event) => {
+    const week = event.target.value || null;
+    setSelectedWeek(week);
+    loadSnapshot(week);
+  };
 
   /* ---------- Derived Data from Snapshot ---------- */
   const parsedRows = snapshot?.parsedRows || [];
@@ -117,9 +182,13 @@ export default function SlideDeckVisualizer() {
   };
 
   /* ---------- UI States ---------- */
-  if (loadingSnapshot) {
+  if (loadingSnapshot || loadingHistory) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
+      <div
+        className="min-h-screen flex items-center justify-center text-gray-600"
+        role="status"
+        aria-live="polite"
+      >
         <Loader2 className="animate-spin mr-3" /> Loading dashboard...
       </div>
     );
@@ -127,7 +196,10 @@ export default function SlideDeckVisualizer() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-red-600">
+      <div
+        className="min-h-screen flex flex-col items-center justify-center text-red-700"
+        aria-live="assertive"
+      >
         <AlertCircle size={48} className="mb-4" />
         <p className="text-xl font-bold">Cannot load dashboard</p>
         <p className="mt-2">{error}</p>
@@ -135,8 +207,9 @@ export default function SlideDeckVisualizer() {
           Make sure an admin uploaded a CSV via <code>/admin/upload</code>.
         </p>
         <button
-          onClick={loadLatestSnapshot}
-          className="mt-6 px-4 py-2 bg-blue-600 text-white rounded-md"
+          onClick={loadHistory}
+          className="mt-6 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800"
+          aria-label="Retry loading dashboard"
         >
           Retry
         </button>
@@ -148,7 +221,7 @@ export default function SlideDeckVisualizer() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center text-gray-500">
         <p className="text-xl font-bold">No data available</p>
-        <p className="mt-2 text-gray-400">Ask admin to upload a CSV.</p>
+        <p className="mt-2 text-gray-500">Ask admin to upload a CSV.</p>
       </div>
     );
   }
@@ -158,22 +231,64 @@ export default function SlideDeckVisualizer() {
     <div className="min-h-screen bg-gray-100 px-6 py-6 flex justify-center font-sans">
       <div className="w-full max-w-[1920px] flex flex-col gap-6">
         {/* HEADER */}
-        <div className="bg-white px-6 py-4 rounded-2xl shadow-sm border flex flex-col xl:flex-row justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              Team Status Overview
-            </h1>
-            <div className="text-sm text-gray-500 mt-1">
-              {uploadedLabel && <span>Uploaded: {uploadedLabel}</span>}
-              <span className="mx-2">|</span>
-              <span>Total Items: {totalTasks}</span>
+        <div className="bg-white px-6 py-4 rounded-2xl shadow-sm border flex flex-col gap-3">
+          <div className="flex flex-col xl:flex-row justify-between gap-3">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">
+                Team Status Overview
+              </h1>
+              <div className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-2">
+                {uploadedLabel && <span>Uploaded: {uploadedLabel}</span>}
+                <span className="mx-1 text-gray-300">|</span>
+                <span>Total Items: {totalTasks}</span>
+                {snapshot?.weekId && (
+                  <>
+                    <span className="mx-1 text-gray-300">|</span>
+                    <span className="font-medium text-gray-700">
+                      Week: {snapshot.weekId}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600" htmlFor="week-select">
+                  Week
+                </label>
+                <select
+                  id="week-select"
+                  value={selectedWeek ?? ""}
+                  onChange={handleWeekChange}
+                  disabled={loadingHistory || loadingSnapshot || !history.length}
+                  className="border rounded-md px-3 py-2 text-sm text-gray-800 bg-white shadow-sm"
+                  aria-label="Select week to view snapshot"
+                >
+                  {history.length === 0 && <option value="">Latest</option>}
+                  {history.map((w) => (
+                    <option key={w.weekId} value={w.weekId}>
+                      {w.weekId} ({w.totalIncomplete ?? w.offenderCount ?? 0} incomplete)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Link
+                href="/leaderboard"
+                className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700 text-sm font-medium"
+                aria-label="View all-time leaderboard"
+              >
+                View Leaderboard
+              </Link>
             </div>
           </div>
 
           {/* VIEW SWITCHER */}
-          <div className="flex gap-3 flex-wrap items-center mt-4 xl:mt-0">
+          <div className="flex gap-3 flex-wrap items-center">
             <button
               onClick={() => setViewMode("chart")}
+              aria-pressed={viewMode === "chart"}
+              aria-label="Show chart view"
               className={`px-4 py-2 rounded-lg ${
                 viewMode === "chart"
                   ? "bg-blue-600 text-white"
@@ -184,6 +299,8 @@ export default function SlideDeckVisualizer() {
             </button>
             <button
               onClick={() => setViewMode("grid")}
+              aria-pressed={viewMode === "grid"}
+              aria-label="Show heatmap view"
               className={`px-4 py-2 rounded-lg ${
                 viewMode === "grid"
                   ? "bg-blue-600 text-white"
@@ -194,6 +311,8 @@ export default function SlideDeckVisualizer() {
             </button>
             <button
               onClick={() => setViewMode("summary")}
+              aria-pressed={viewMode === "summary"}
+              aria-label="Show summary view"
               className={`px-4 py-2 rounded-lg ${
                 viewMode === "summary"
                   ? "bg-blue-600 text-white"
@@ -203,10 +322,18 @@ export default function SlideDeckVisualizer() {
               <List size={16} /> Summary
             </button>
             <button
-              onClick={loadLatestSnapshot}
-              className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700"
+              onClick={loadHistory}
+              aria-label="Refresh data"
+              className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700 hover:bg-gray-100"
             >
               Refresh
+            </button>
+            <button
+              onClick={exportSnapshot}
+              aria-label="Export snapshot as JSON"
+              className="px-4 py-2 rounded-lg border bg-white text-gray-800 hover:bg-gray-50"
+            >
+              Export Snapshot JSON
             </button>
           </div>
         </div>
@@ -231,28 +358,34 @@ export default function SlideDeckVisualizer() {
 
           {/* ---------- HEATMAP VIEW ---------- */}
           {viewMode === "grid" && (
-            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4">
-              {sortedData.map((p) => {
-                const color =
-                  p.value >= 6
-                    ? "bg-red-50 border-red-300 text-red-700"
-                    : p.value >= 3
-                    ? "bg-amber-50 border-amber-300 text-amber-700"
-                    : "bg-blue-50 border-blue-200 text-blue-700";
+            <div className="overflow-x-auto pb-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 min-w-[320px]">
+                {sortedData.map((p) => {
+                  const color =
+                    p.value >= 6
+                      ? "bg-red-100 border-red-500 text-red-900"
+                      : p.value >= 3
+                      ? "bg-amber-100 border-amber-500 text-amber-900"
+                      : "bg-blue-100 border-blue-500 text-blue-900";
 
-                return (
-                  <div
-                    key={p.name}
-                    onClick={() => setSelectedUser(p.name)}
-                    className={`p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition ${color}`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{shortName(p.name)}</span>
-                      <span className="font-bold text-xl">{p.value}</span>
+                  return (
+                    <div
+                      key={p.name}
+                      onClick={() => setSelectedUser(p.name)}
+                      onKeyDown={(e) => handleTileKeyDown(e, p.name)}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`Open user details for ${shortName(p.name)}`}
+                      className={`p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600 ${color}`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
+                        <span className="font-bold text-xl text-gray-900">{p.value}</span>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -291,15 +424,25 @@ export default function SlideDeckVisualizer() {
 function UserModal({ userName, sessions, onClose }) {
   if (!userName) return null;
 
+  const headingId = "user-modal-title";
+
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl border border-gray-200">
+    <div
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={headingId}
+    >
+      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl border border-gray-300 focus:outline-none">
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-900">{userName}</h2>
+          <h2 id={headingId} className="text-2xl font-bold text-gray-900">
+            {userName}
+          </h2>
           <button
             onClick={onClose}
-            className="text-sm px-3 py-1 rounded-md bg-gray-200 hover:bg-gray-300"
+            className="text-sm px-3 py-1 rounded-md bg-gray-200 hover:bg-gray-300 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
+            aria-label="Close user details"
           >
             Close
           </button>
@@ -310,7 +453,7 @@ function UserModal({ userName, sessions, onClose }) {
           {sessions.map((s, i) => (
             <div
               key={i}
-              className="p-4 rounded-lg border bg-gray-50 hover:bg-gray-100 transition shadow-sm"
+              className="p-4 rounded-lg border border-gray-300 bg-gray-50 hover:bg-gray-100 transition shadow-sm text-gray-900"
             >
               <p className="font-semibold text-gray-900 mb-1">
                 {s.title}
