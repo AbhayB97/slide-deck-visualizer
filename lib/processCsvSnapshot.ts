@@ -27,119 +27,67 @@ export type Snapshot = {
   };
 };
 
-const INCOMPLETE_STATUSES = ['not started', 'in progress'];
-
-const HEADER_ALIASES: Record<
-  'firstName' | 'lastName' | 'status' | 'title' | 'sentDate',
-  string[]
-> = {
-  firstName: ['User First Name', 'First Name', 'FirstName', 'UserFirstName'],
-  lastName: ['User Last Name', 'Last Name', 'LastName', 'UserLastName'],
-  status: ['Status', 'State', 'Training Status'],
-  title: ['Title', 'Session Title', 'Course Name', 'Module Title'],
-  sentDate: ['Sent Date (UTC)', 'Sent Date', 'SentDate', 'Assigned Date'],
+export type FieldMapping = {
+  firstName: string;
+  lastName: string;
+  status: string;
+  title: string;
+  sentDate: string;
 };
+
+const INCOMPLETE_STATUSES = ['not started', 'in progress'];
 
 function normalize(value: string | undefined | null) {
   return (value ?? '').trim();
 }
 
-function normalizeHeaderKey(raw: string | undefined | null) {
-  const trimmed = (raw ?? '').replace(/^\uFEFF/, '').trim();
-  const withoutQuotes = trimmed.replace(/^["']+|["']+$/g, '');
-  const collapsed = withoutQuotes.replace(/\s+/g, ' ').toLowerCase();
-  const compact = collapsed.replace(/[^a-z0-9]+/g, '');
-  return compact;
+function detectDelimiter(headerLine: string) {
+  const delimiters = [',', '\t', ';', '|'];
+  const scored = delimiters.map((d) => ({
+    d,
+    count: (headerLine.match(new RegExp(`\\${d}`, 'g')) || []).length,
+  }));
+  const best = scored.sort((a, b) => b.count - a.count)[0];
+  return best && best.count > 0 ? best.d : ',';
+}
+
+function parseCsv(text: string): { headers: string[]; rows: Record<string, string>[] } {
+  const firstLine = text.split(/\r?\n/)[0] ?? '';
+  const delimiter = detectDelimiter(firstLine);
+
+  const rows = parse(text, {
+    bom: true,
+    columns: (headers: string[]) => headers.map((h) => (h ?? '').trim()),
+    skip_empty_lines: true,
+    relax_column_count: true,
+    delimiter,
+    info: false,
+  }) as Record<string, string>[];
+
+  const headers = Object.keys(rows[0] ?? {});
+  if (!headers.length) {
+    throw new Error('No headers detected in CSV');
+  }
+
+  return { headers, rows };
 }
 
 function isIncomplete(status: string) {
   return INCOMPLETE_STATUSES.includes(status.toLowerCase());
 }
 
-function buildAliasLookup(): {
-  normalizedAliases: Record<keyof typeof HEADER_ALIASES, string[]>;
-  prettyList: Record<keyof typeof HEADER_ALIASES, string>;
-} {
-  const normalizedAliases: Partial<Record<keyof typeof HEADER_ALIASES, string[]>> = {};
-  const prettyList: Partial<Record<keyof typeof HEADER_ALIASES, string>> = {};
-
-  (Object.keys(HEADER_ALIASES) as (keyof typeof HEADER_ALIASES)[]).forEach((key) => {
-    const aliases = HEADER_ALIASES[key];
-    normalizedAliases[key] = aliases.map((a) => normalizeHeaderKey(a));
-    prettyList[key] = aliases.join(', ');
-  });
-
-  return { normalizedAliases: normalizedAliases as Record<keyof typeof HEADER_ALIASES, string[]>, prettyList: prettyList as Record<keyof typeof HEADER_ALIASES, string> };
-}
-
-function ensureRequiredHeaders(headers: Set<string>) {
-  const { normalizedAliases, prettyList } = buildAliasLookup();
-  (Object.keys(normalizedAliases) as (keyof typeof HEADER_ALIASES)[]).forEach((key) => {
-    const hasAlias = normalizedAliases[key].some((alias) => headers.has(alias));
-    if (!hasAlias) {
-      throw new Error(
-        `Missing required column for ${key.replace(/([A-Z])/g, ' $1').toLowerCase()} (tried: ${prettyList[key]})`
-      );
-    }
-  });
-}
-
-function getField(row: Record<string, string>, aliases: string[]) {
-  for (const alias of aliases) {
-    if (alias in row) return normalize(row[alias]);
-  }
-  return '';
-}
-
-function parseCsv(text: string): Record<string, string>[] {
-  const delimitersToTry = [',', '\t', ';', '|'];
-  let lastError: Error | null = null;
-
-  for (const delimiter of delimitersToTry) {
-    try {
-      const records = parse(text, {
-        bom: true,
-        columns: (headers: string[]) => headers.map((h) => normalizeHeaderKey(h)),
-        skip_empty_lines: true,
-        relax_column_count: true,
-        delimiter,
-        info: true,
-      }) as (Record<string, string>[] & { info?: { columns?: string[] } });
-
-      const info = (records as any)?.info as { columns?: string[] } | undefined;
-      const discoveredHeaders =
-        info?.columns && info.columns.length
-          ? info.columns
-          : records.length
-          ? Object.keys(records[0])
-          : [];
-      const headers = new Set(discoveredHeaders.map((h) => normalizeHeaderKey(h)));
-      ensureRequiredHeaders(headers);
-
-      return records;
-    } catch (err: any) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-    }
-  }
-
-  if (lastError) throw lastError;
-  throw new Error('Invalid CSV format: unable to read headers');
-}
-
-function buildParsedRows(rows: Record<string, string>[]): ParsedRow[] {
-  const { normalizedAliases } = buildAliasLookup();
-
+function buildParsedRows(rows: Record<string, string>[], mapping: FieldMapping): ParsedRow[] {
   return rows
     .map((row) => {
-      const firstName = getField(row, normalizedAliases.firstName);
-      const lastName = getField(row, normalizedAliases.lastName);
-      const status = getField(row, normalizedAliases.status);
+      const firstName = normalize(row[mapping.firstName]);
+      const lastName = normalize(row[mapping.lastName]);
+      const status = normalize(row[mapping.status]);
       if (!firstName && !lastName) return null;
       if (!status) return null;
 
       const fullName = `${firstName} ${lastName}`.trim();
-      const sentDate = getField(row, normalizedAliases.sentDate);
-      const title = getField(row, normalizedAliases.title);
+      const sentDate = normalize(row[mapping.sentDate]);
+      const title = normalize(row[mapping.title]);
 
       return {
         fullName,
@@ -154,10 +102,22 @@ function buildParsedRows(rows: Record<string, string>[]): ParsedRow[] {
     .filter((row) => isIncomplete((row as ParsedRow).status)) as ParsedRow[];
 }
 
-export async function processCsvSnapshot(fileUrl: string): Promise<Snapshot> {
+export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping): Promise<Snapshot> {
   const csvText = await getCsv(fileUrl);
-  const rows = parseCsv(csvText);
-  const parsedRows = buildParsedRows(rows);
+  const { rows, headers } = parseCsv(csvText);
+
+  const required = ['firstName', 'lastName', 'status', 'title', 'sentDate'] as const;
+  for (const key of required) {
+    const header = mapping[key];
+    if (!header) {
+      throw new Error(`Missing mapping for ${key}`);
+    }
+    if (!headers.includes(header)) {
+      throw new Error(`Mapping refers to missing column "${header}"`);
+    }
+  }
+
+  const parsedRows = buildParsedRows(rows, mapping);
   const uploadedAt = new Date();
   const weekId = getIsoWeekId(uploadedAt);
 
