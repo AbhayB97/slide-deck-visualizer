@@ -18,6 +18,7 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
+import { RotateCw } from "lucide-react";
 
 /* ---------- Helpers ---------- */
 const shortName = (fullName) => {
@@ -50,6 +51,10 @@ export default function SlideDeckVisualizer() {
 
   const [viewMode, setViewMode] = useState("chart");
   const [selectedUser, setSelectedUser] = useState(null);
+  const [rouletteUsers, setRouletteUsers] = useState([]);
+  const [spinResult, setSpinResult] = useState(null);
+  const [spinning, setSpinning] = useState(false);
+  const [listsError, setListsError] = useState(null);
 
   const handleTileKeyDown = (event, name) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -134,6 +139,25 @@ export default function SlideDeckVisualizer() {
     loadHistory();
   }, []);
 
+  async function loadLists() {
+    try {
+      setListsError(null);
+      const res = await fetch("/api/current-lists");
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "Failed to load lists");
+      }
+      setRouletteUsers(json.rouletteUsers || []);
+    } catch (err) {
+      setListsError(err.message);
+      setRouletteUsers([]);
+    }
+  }
+
+  useEffect(() => {
+    loadLists();
+  }, []);
+
   const handleWeekChange = (event) => {
     const week = event.target.value || null;
     setSelectedWeek(week);
@@ -179,6 +203,17 @@ export default function SlideDeckVisualizer() {
     if (v >= 6) return "#ef4444"; // red
     if (v >= 3) return "#f59e0b"; // amber
     return "#3b82f6"; // blue
+  };
+
+  const spinRoulette = () => {
+    if (!rouletteUsers.length) return;
+    setSpinning(true);
+    setSpinResult(null);
+    const winner = rouletteUsers[Math.floor(Math.random() * rouletteUsers.length)];
+    setTimeout(() => {
+      setSpinResult(winner);
+      setSpinning(false);
+    }, 1200);
   };
 
   /* ---------- UI States ---------- */
@@ -280,133 +315,188 @@ export default function SlideDeckVisualizer() {
               >
                 View Leaderboard
               </Link>
+              <button
+                onClick={loadHistory}
+                aria-label="Refresh data"
+                className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700 hover:bg-gray-100"
+              >
+                Refresh
+              </button>
+              <button
+                onClick={exportSnapshot}
+                aria-label="Export snapshot as JSON"
+                className="px-4 py-2 rounded-lg border bg-white text-gray-800 hover:bg-gray-50"
+              >
+                Export Snapshot JSON
+              </button>
             </div>
-          </div>
-
-          {/* VIEW SWITCHER */}
-          <div className="flex gap-3 flex-wrap items-center">
-            <button
-              onClick={() => setViewMode("chart")}
-              aria-pressed={viewMode === "chart"}
-              aria-label="Show chart view"
-              className={`px-4 py-2 rounded-lg ${
-                viewMode === "chart"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600"
-              }`}
-            >
-              <BarChart2 size={16} /> Chart
-            </button>
-            <button
-              onClick={() => setViewMode("grid")}
-              aria-pressed={viewMode === "grid"}
-              aria-label="Show heatmap view"
-              className={`px-4 py-2 rounded-lg ${
-                viewMode === "grid"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600"
-              }`}
-            >
-              <LayoutGrid size={16} /> Heatmap
-            </button>
-            <button
-              onClick={() => setViewMode("summary")}
-              aria-pressed={viewMode === "summary"}
-              aria-label="Show summary view"
-              className={`px-4 py-2 rounded-lg ${
-                viewMode === "summary"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600"
-              }`}
-            >
-              <List size={16} /> Summary
-            </button>
-            <button
-              onClick={loadHistory}
-              aria-label="Refresh data"
-              className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700 hover:bg-gray-100"
-            >
-              Refresh
-            </button>
-            <button
-              onClick={exportSnapshot}
-              aria-label="Export snapshot as JSON"
-              className="px-4 py-2 rounded-lg border bg-white text-gray-800 hover:bg-gray-50"
-            >
-              Export Snapshot JSON
-            </button>
           </div>
         </div>
 
-        {/* MAIN CARD */}
-        <div className="bg-white p-10 rounded-2xl shadow-lg border flex-1">
-          {/* ---------- CHART VIEW ---------- */}
-          {viewMode === "chart" && (
-            <ResponsiveContainer width="100%" height={800}>
-              <BarChart data={sortedData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" width={160} />
-                <Bar dataKey="value">
-                  {sortedData.map((row, i) => (
-                    <Cell key={i} fill={barColor(row.value)} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-
-          {/* ---------- HEATMAP VIEW ---------- */}
-          {viewMode === "grid" && (
-            <div className="overflow-x-auto pb-2">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 min-w-[320px]">
-                {sortedData.map((p) => {
-                  const color =
-                    p.value >= 6
-                      ? "bg-red-100 border-red-500 text-red-900"
-                      : p.value >= 3
-                      ? "bg-amber-100 border-amber-500 text-amber-900"
-                      : "bg-blue-100 border-blue-500 text-blue-900";
-
-                  return (
-                    <div
-                      key={p.name}
-                      onClick={() => setSelectedUser(p.name)}
-                      onKeyDown={(e) => handleTileKeyDown(e, p.name)}
-                      tabIndex={0}
-                      role="button"
-                      aria-label={`Open user details for ${shortName(p.name)}`}
-                      className={`p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600 ${color}`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
-                        <span className="font-bold text-xl text-gray-900">{p.value}</span>
-                      </div>
-                    </div>
-                  );
-                })}
+        {/* MAIN CONTENT */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* High Risk Panel */}
+          <div className="bg-white p-6 rounded-2xl shadow-lg border flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900">High Risk Users</h2>
+              <div className="text-sm text-gray-600">
+                {data.length} people • {totalTasks} incomplete items
               </div>
             </div>
-          )}
-
-          {/* ---------- SUMMARY VIEW ---------- */}
-          {viewMode === "summary" && (
-            <div className="space-y-2">
-              <h2 className="text-xl font-bold mb-4">Executive Summary</h2>
-
-              <p className="text-gray-700">
-                <span className="font-semibold">Total Incomplete Items:</span> {totalTasks}
-              </p>
-
-              <p className="text-gray-700">
-                <span className="font-semibold">Users With Incomplete Items:</span> {data.length}
-              </p>
-
-              <p className="text-gray-700">
-                <span className="font-semibold">Average Per Person:</span> {averageTasks}
-              </p>
+            <div className="flex gap-3 flex-wrap items-center">
+              <button
+                onClick={() => setViewMode("chart")}
+                aria-pressed={viewMode === "chart"}
+                aria-label="Show chart view"
+                className={`px-3 py-2 rounded-lg ${
+                  viewMode === "chart"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                <BarChart2 size={16} /> Chart
+              </button>
+              <button
+                onClick={() => setViewMode("grid")}
+                aria-pressed={viewMode === "grid"}
+                aria-label="Show heatmap view"
+                className={`px-3 py-2 rounded-lg ${
+                  viewMode === "grid"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                <LayoutGrid size={16} /> Heatmap
+              </button>
+              <button
+                onClick={() => setViewMode("summary")}
+                aria-pressed={viewMode === "summary"}
+                aria-label="Show summary view"
+                className={`px-3 py-2 rounded-lg ${
+                  viewMode === "summary"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                <List size={16} /> Summary
+              </button>
             </div>
-          )}
+
+            {viewMode === "chart" && (
+              <ResponsiveContainer width="100%" height={500}>
+                <BarChart data={sortedData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" hide />
+                  <YAxis dataKey="name" type="category" width={160} />
+                  <Bar dataKey="value">
+                    {sortedData.map((row, i) => (
+                      <Cell key={i} fill={barColor(row.value)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+
+            {viewMode === "grid" && (
+              <div className="overflow-x-auto pb-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
+                  {sortedData.map((p) => {
+                    const color =
+                      p.value >= 6
+                        ? "bg-red-100 border-red-500 text-red-900"
+                        : p.value >= 3
+                        ? "bg-amber-100 border-amber-500 text-amber-900"
+                        : "bg-blue-100 border-blue-500 text-blue-900";
+
+                    return (
+                      <div
+                        key={p.name}
+                        onClick={() => setSelectedUser(p.name)}
+                        onKeyDown={(e) => handleTileKeyDown(e, p.name)}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`Open user details for ${shortName(p.name)}`}
+                        className={`p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600 ${color}`}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
+                          <span className="font-bold text-xl text-gray-900">{p.value}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {viewMode === "summary" && (
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold mb-2">Summary</h3>
+                <p className="text-gray-700">
+                  <span className="font-semibold">Total Incomplete Items:</span> {totalTasks}
+                </p>
+
+                <p className="text-gray-700">
+                  <span className="font-semibold">Users With Incomplete Items:</span> {data.length}
+                </p>
+
+                <p className="text-gray-700">
+                  <span className="font-semibold">Average Per Person:</span> {averageTasks}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Roulette Panel */}
+          <div className="bg-white p-6 rounded-2xl shadow-lg border flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Roulette Wheel</h2>
+                <p className="text-sm text-gray-600">
+                  Eligible: {rouletteUsers.length} people (not currently high risk)
+                </p>
+              </div>
+              <button
+                onClick={loadLists}
+                className="text-sm px-3 py-2 rounded-md border bg-gray-50 text-gray-700 hover:bg-gray-100"
+              >
+                Refresh Lists
+              </button>
+            </div>
+
+            {listsError && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                {listsError}
+              </div>
+            )}
+
+            <div className="flex flex-col items-center gap-4">
+              <div
+                className={`w-72 h-72 rounded-full border-4 border-gray-300 flex items-center justify-center relative ${
+                  spinning ? "animate-spin-slow" : ""
+                }`}
+                style={{ animationDuration: "1.2s" }}
+              >
+                <div className="text-center px-4">
+                  {spinResult ? (
+                    <p className="text-lg font-bold text-gray-900">{spinResult}</p>
+                  ) : rouletteUsers.length ? (
+                    <p className="text-sm text-gray-600">Tap spin to select a random user</p>
+                  ) : (
+                    <p className="text-sm text-gray-500">No eligible users</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={spinRoulette}
+                disabled={!rouletteUsers.length || spinning}
+                className="inline-flex items-center px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <RotateCw size={16} className="mr-2" />
+                {spinning ? "Spinning..." : "Spin"}
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* ---------- USER MODAL ---------- */}
