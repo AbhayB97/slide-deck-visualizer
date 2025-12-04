@@ -10,23 +10,16 @@ type UploadResponse = {
   uploadedAt: string;
 };
 
-type SnapshotResponse = {
+type MasterResponse = {
   success: boolean;
-  snapshotPath?: string;
-  offenderCount?: number;
-  snapshot?: {
-    snapshotId: string;
-    snapshotUrl: string;
-    uploadedAt: string;
-    offenderCount: number;
-  };
+  count?: number;
   error?: string;
 };
 
-export default function AdminUploadPage() {
+export default function AdminUploadMasterPage() {
   const [file, setFile] = useState<File | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null);
-  const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -35,9 +28,6 @@ export default function AdminUploadPage() {
   const [mapping, setMapping] = useState({
     firstName: "",
     lastName: "",
-    status: "",
-    title: "",
-    sentDate: "",
   });
 
   const handleUpload = async (e: FormEvent) => {
@@ -47,16 +37,10 @@ export default function AdminUploadPage() {
       return;
     }
     setError(null);
-    setSnapshotMessage(null);
+    setMessage(null);
     setIsUploading(true);
-    setMapping({
-      firstName: "",
-      lastName: "",
-      status: "",
-      title: "",
-      sentDate: "",
-    });
     setHeaders([]);
+    setMapping({ firstName: "", lastName: "" });
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -92,6 +76,9 @@ export default function AdminUploadPage() {
     try {
       setLoadingHeaders(true);
       const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error("Failed to read CSV");
+      }
       const text = await res.text();
       const firstLine = text.split(/\r?\n/)[0] ?? "";
       const delimiter = detectDelimiter(firstLine);
@@ -119,20 +106,18 @@ export default function AdminUploadPage() {
     }
     setIsProcessing(true);
     setError(null);
-    setSnapshotMessage(null);
+    setMessage(null);
     try {
-      const res = await fetch("/api/process-csv", {
+      const res = await fetch("/api/process-master", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileUrl: uploadResult.fileUrl, mapping }),
       });
-      const data: SnapshotResponse = await res.json();
-      if (!res.ok || !data.success || !data.snapshot) {
+      const data: MasterResponse = await res.json();
+      if (!res.ok || !data.success) {
         throw new Error(data.error || "Processing failed");
       }
-      setSnapshotMessage(
-        `Snapshot created: ${data.snapshot.snapshotId} (${data.snapshot.offenderCount} incomplete)`
-      );
+      setMessage(`Master list saved (${data.count ?? 0} names)`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Processing failed");
     } finally {
@@ -143,19 +128,20 @@ export default function AdminUploadPage() {
   return (
     <div className="min-h-screen bg-gray-100 flex items-start justify-center px-4 py-12">
       <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-gray-200 p-8 space-y-6">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400">Admin</p>
-          <h1 className="text-3xl font-bold text-gray-900">Upload & Process CSV</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            Upload a CSV to Blob storage, map your columns, then process it into a snapshot for the dashboard.
-          </p>
-          <div className="mt-2 text-xs text-blue-700">
-            <Link href="/templates/snapshot-template.csv" className="underline">
-              Download template (optional)
-            </Link>
-            <span className="mx-2 text-gray-400">·</span>
-            <Link href="/admin/upload-master" className="underline">
-              Upload master list
+        <div className="flex justify-between items-center">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-gray-400">Admin</p>
+            <h1 className="text-3xl font-bold text-gray-900">Upload Master List</h1>
+            <p className="text-sm text-gray-600 mt-1">
+              Upload a monthly All_users.csv, map name columns, and save to the master list.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Link
+              href="/admin/upload"
+              className="text-sm text-blue-700 underline"
+            >
+              Upload weekly CSV
             </Link>
           </div>
         </div>
@@ -203,9 +189,6 @@ export default function AdminUploadPage() {
                   {([
                     { key: "firstName", label: "First Name" },
                     { key: "lastName", label: "Last Name" },
-                    { key: "status", label: "Status" },
-                    { key: "title", label: "Title" },
-                    { key: "sentDate", label: "Sent Date" },
                   ] as const).map((field) => (
                     <label key={field.key} className="text-sm text-gray-700 flex flex-col gap-1">
                       <span className="font-medium">{field.label}</span>
@@ -233,14 +216,14 @@ export default function AdminUploadPage() {
               disabled={isProcessing || !allMapped}
               className="inline-flex items-center px-3 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
             >
-              {isProcessing ? "Processing..." : "Process CSV Into Snapshot"}
+              {isProcessing ? "Processing..." : "Process CSV Into Master"}
             </button>
           </div>
         )}
 
-        {snapshotMessage && (
+        {message && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-            <p className="text-sm font-semibold text-blue-800">{snapshotMessage}</p>
+            <p className="text-sm font-semibold text-blue-800">{message}</p>
           </div>
         )}
 
