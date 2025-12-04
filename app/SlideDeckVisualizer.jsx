@@ -462,6 +462,12 @@ export default function SlideDeckVisualizer() {
               >
                 Refresh Lists
               </button>
+              <Link
+                href="/draw/slot-machine"
+                className="text-sm px-3 py-2 rounded-md border bg-white text-gray-700 hover:bg-gray-50"
+              >
+                Slot Machine
+              </Link>
             </div>
 
             {listsError && (
