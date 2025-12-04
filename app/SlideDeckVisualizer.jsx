@@ -270,7 +270,7 @@ export default function SlideDeckVisualizer() {
           <div className="flex flex-col xl:flex-row justify-between gap-3">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">
-                Team Status Overview
+                Security Awareness Dashboard
               </h1>
               <div className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-2">
                 {uploadedLabel && <span>Uploaded: {uploadedLabel}</span>}
