@@ -80,16 +80,17 @@ export default function SlotMachinePage() {
     setSpinSeed(newSeed);
 
     const newOffsets = Array(REEL_COUNT).fill(0);
+    const baseLength = rouletteUsers.length;
     const promises = reels.map((names, idx) => {
       const spins = Math.floor(Math.random() * names.length);
       const duration = SPIN_DURATION_MS + idx * 400;
       const offset = spins * segmentHeight * -1;
       newOffsets[idx] = offset;
-      return new Promise<string>((resolve) => {
+      return new Promise<number>((resolve) => {
         setTimeout(() => {
           const centerIndex = Math.abs(Math.round(offset / segmentHeight)) % names.length;
-          const name = names[centerIndex] || names[0];
-          resolve(name);
+          const normalizedIndex = baseLength ? centerIndex % baseLength : 0;
+          resolve(normalizedIndex);
         }, duration);
       });
     });
@@ -97,8 +98,9 @@ export default function SlotMachinePage() {
     setOffsets(newOffsets);
 
     Promise.all(promises).then((results) => {
-      const final = results[1] || results[0] || "";
-      setWinner(final);
+      const idxMid = results[1] ?? results[0] ?? 0;
+      const finalName = rouletteUsers[idxMid] || "";
+      setWinner(finalName || null);
       setSpinning(false);
       // simple confetti substitute: trigger a CSS animation via class toggle
       document.documentElement.classList.add("slot-confetti");
