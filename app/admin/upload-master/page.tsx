@@ -28,6 +28,7 @@ export default function AdminUploadMasterPage() {
   const [mapping, setMapping] = useState({
     firstName: "",
     lastName: "",
+    fullName: "",
   });
 
   const handleUpload = async (e: FormEvent) => {
@@ -40,7 +41,7 @@ export default function AdminUploadMasterPage() {
     setMessage(null);
     setIsUploading(true);
     setHeaders([]);
-    setMapping({ firstName: "", lastName: "" });
+    setMapping({ firstName: "", lastName: "", fullName: "" });
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -92,7 +93,10 @@ export default function AdminUploadMasterPage() {
     }
   };
 
-  const allMapped = Object.values(mapping).every(Boolean) && headers.length > 0;
+  const allMapped =
+    headers.length > 0 &&
+    (Boolean(mapping.fullName) ||
+      (Boolean(mapping.firstName) && Boolean(mapping.lastName)));
 
   const updateMapping = (key: keyof typeof mapping, value: string) => {
     setMapping((prev) => ({ ...prev, [key]: value }));
@@ -101,7 +105,7 @@ export default function AdminUploadMasterPage() {
   const handleProcess = async () => {
     if (!uploadResult?.fileUrl) return;
     if (!allMapped) {
-      setError("Please map all fields before processing.");
+      setError("Please map all fields before processing (full name or first + last).");
       return;
     }
     setIsProcessing(true);
@@ -111,7 +115,14 @@ export default function AdminUploadMasterPage() {
       const res = await fetch("/api/process-master", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileUrl: uploadResult.fileUrl, mapping }),
+        body: JSON.stringify({
+          fileUrl: uploadResult.fileUrl,
+          mapping: {
+            firstName: mapping.firstName || undefined,
+            lastName: mapping.lastName || undefined,
+            fullName: mapping.fullName || undefined,
+          },
+        }),
       });
       const data: MasterResponse = await res.json();
       if (!res.ok || !data.success) {
@@ -185,28 +196,34 @@ export default function AdminUploadMasterPage() {
                   Headers could not be detected. Please re-upload or check the file format.
                 </p>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {([
-                    { key: "firstName", label: "First Name" },
-                    { key: "lastName", label: "Last Name" },
-                  ] as const).map((field) => (
-                    <label key={field.key} className="text-sm text-gray-700 flex flex-col gap-1">
-                      <span className="font-medium">{field.label}</span>
-                      <select
-                        value={mapping[field.key]}
-                        onChange={(e) => updateMapping(field.key, e.target.value)}
-                        className="border rounded-md px-3 py-2 text-sm text-gray-800 bg-white shadow-sm"
-                      >
-                        <option value="">Select column</option>
-                        {headers.map((h) => (
-                          <option key={h} value={h}>
-                            {h}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {([
+                      { key: "fullName", label: "Full Name (combined)" },
+                      { key: "firstName", label: "First Name" },
+                      { key: "lastName", label: "Last Name" },
+                    ] as const).map((field) => (
+                      <label key={field.key} className="text-sm text-gray-700 flex flex-col gap-1">
+                        <span className="font-medium">{field.label}</span>
+                        <select
+                          value={mapping[field.key]}
+                          onChange={(e) => updateMapping(field.key, e.target.value)}
+                          className="border rounded-md px-3 py-2 text-sm text-gray-800 bg-white shadow-sm"
+                        >
+                          <option value="">Select column</option>
+                          {headers.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Map either a combined Full Name column, or both First Name and Last Name.
+                  </p>
+                </>
               )}
             </div>
 

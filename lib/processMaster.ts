@@ -3,8 +3,9 @@ import { parse } from 'csv-parse/sync';
 import { getCsv } from '@/lib/storage';
 
 export type MasterMapping = {
-  firstName: string;
-  lastName: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
 };
 
 export const MASTER_PATH = 'master/latest.json';
@@ -48,17 +49,28 @@ export async function processMasterCsv(fileUrl: string, mapping: MasterMapping):
   const csvText = await getCsv(fileUrl);
   const { headers, rows } = parseCsv(csvText);
 
-  if (!mapping.firstName || !mapping.lastName) {
-    throw new Error('Mapping for firstName and lastName is required');
+  const hasFull = Boolean(mapping.fullName);
+  const hasFirstLast = Boolean(mapping.firstName && mapping.lastName);
+  if (!hasFull && !hasFirstLast) {
+    throw new Error('Mapping for either fullName or both firstName and lastName is required');
   }
-  if (!headers.includes(mapping.firstName) || !headers.includes(mapping.lastName)) {
-    throw new Error('Mapping refers to missing column(s)');
+  if (hasFull && !headers.includes(mapping.fullName as string)) {
+    throw new Error(`Mapping refers to missing column "${mapping.fullName}"`);
+  }
+  if (hasFirstLast) {
+    if (!headers.includes(mapping.firstName as string) || !headers.includes(mapping.lastName as string)) {
+      throw new Error('Mapping refers to missing column(s)');
+    }
   }
 
   const names = rows
     .map((row) => {
-      const first = normalize(row[mapping.firstName]);
-      const last = normalize(row[mapping.lastName]);
+      if (mapping.fullName) {
+        const full = normalize(row[mapping.fullName]);
+        return full || null;
+      }
+      const first = normalize(row[mapping.firstName as string]);
+      const last = normalize(row[mapping.lastName as string]);
       const full = `${first} ${last}`.trim();
       return full || null;
     })
