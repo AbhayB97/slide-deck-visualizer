@@ -11,7 +11,6 @@ type ListsResponse = {
 };
 
 const REEL_COUNT = 3;
-const REEL_REPEAT = 6;
 const REEL_HEIGHT = 320;
 const SPIN_DURATION_MS = 2600;
 
@@ -40,9 +39,7 @@ export default function SlotMachinePage() {
 
   const reels = useMemo(() => {
     if (!baseNames.length) return Array(REEL_COUNT).fill([] as string[]);
-    return Array.from({ length: REEL_COUNT }, (_, i) =>
-      shuffle(baseNames).flatMap((names) => Array(REEL_REPEAT).fill(names)).flat(1)
-    );
+    return Array.from({ length: REEL_COUNT }, () => [...baseNames]);
   }, [baseNames]);
 
   const segmentHeight = useMemo(() => {
@@ -80,26 +77,26 @@ export default function SlotMachinePage() {
     setSpinSeed(newSeed);
 
     const newOffsets = Array(REEL_COUNT).fill(0);
-    const baseLength = rouletteUsers.length;
+    const targetIndices = Array.from({ length: REEL_COUNT }, () =>
+      Math.floor(Math.random() * (baseNames.length || 1))
+    );
+
     const promises = reels.map((names, idx) => {
-      const spins = Math.floor(Math.random() * names.length);
+      const fullSpins = Math.floor(Math.random() * 5) + 5; // 5–9 full rotations
       const duration = SPIN_DURATION_MS + idx * 400;
-      const offset = spins * segmentHeight * -1;
+      const offset =
+        -1 * segmentHeight * (fullSpins * names.length + targetIndices[idx]);
       newOffsets[idx] = offset;
-      return new Promise<number>((resolve) => {
-        setTimeout(() => {
-          const centerIndex = Math.abs(Math.round(offset / segmentHeight)) % names.length;
-          const normalizedIndex = baseLength ? centerIndex % baseLength : 0;
-          resolve(normalizedIndex);
-        }, duration);
+      return new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), duration);
       });
     });
 
     setOffsets(newOffsets);
 
     Promise.all(promises).then((results) => {
-      const idxMid = results[1] ?? results[0] ?? 0;
-      const finalName = rouletteUsers[idxMid] || "";
+      const midIdx = targetIndices[1] ?? targetIndices[0] ?? 0;
+      const finalName = baseNames[midIdx] || "";
       setWinner(finalName || null);
       setSpinning(false);
       // simple confetti substitute: trigger a CSS animation via class toggle
