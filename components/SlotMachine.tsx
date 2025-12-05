@@ -73,7 +73,7 @@ export function SlotMachine() {
 
     // Create per-reel shuffled lists and repeated data
     const baseLists = Array.from({ length: REEL_COUNT }, () => shuffle(eligibleUsers));
-    const reelData = baseLists.map((list) => Array.from({ length: 3 }).flatMap(() => list));
+    const reelData = baseLists.map((list) => Array.from({ length: 5 }).flatMap(() => list));
 
     // Pick a winner from eligible list (after spin starts)
     const winningName = eligibleUsers[Math.floor(Math.random() * eligibleUsers.length)];
@@ -84,11 +84,13 @@ export function SlotMachine() {
 
     baseLists.forEach((list, idx) => {
       const repeated = reelData[idx];
-      const baseIdx = list.indexOf(winningName);
-      const targetIdx = baseIdx >= 0 ? baseIdx + list.length : 0; // align to middle repetition
-      const extraSpins = Math.floor(Math.random() * 3) + 3; // 3-5 extra spins
-      const totalSteps = extraSpins * list.length + targetIdx;
-      const targetOffset = -1 * totalSteps * ROW_HEIGHT + centerOffset;
+      const baseIdx = Math.max(list.indexOf(winningName), 0);
+      const spins = Math.floor(Math.random() * 2) + 3; // 3-4 full spins
+      const repeats = spins + 2; // ensure enough rows rendered
+      const data = Array.from({ length: repeats }).flatMap(() => list);
+      reelData[idx] = data;
+      const targetIdx = spins * list.length + baseIdx + Math.floor(list.length / 2);
+      const targetOffset = -1 * targetIdx * ROW_HEIGHT + centerOffset;
 
       // tick stub for sound
       console.debug("tick", idx);
