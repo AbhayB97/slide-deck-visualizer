@@ -30,17 +30,7 @@ export default function SlotMachinePage() {
   const [spinning, setSpinning] = useState(false);
   const [offsets, setOffsets] = useState<number[]>(Array(REEL_COUNT).fill(0));
   const [winner, setWinner] = useState<string | null>(null);
-  const [spinSeed, setSpinSeed] = useState(0);
-
-  const baseNames = useMemo(() => {
-    if (!rouletteUsers.length) return [];
-    return shuffle(rouletteUsers);
-  }, [rouletteUsers, spinSeed]);
-
-  const reels = useMemo(() => {
-    if (!baseNames.length) return Array(REEL_COUNT).fill([] as string[]);
-    return Array.from({ length: REEL_COUNT }, () => [...baseNames]);
-  }, [baseNames]);
+  const [reels, setReels] = useState<string[][]>(Array(REEL_COUNT).fill([]));
 
   const segmentHeight = useMemo(() => {
     const maxDisplay = Math.min(10, rouletteUsers.length || 1);
@@ -56,10 +46,13 @@ export default function SlotMachinePage() {
       if (!res.ok || !json.success) {
         throw new Error(json.error || "Failed to load lists");
       }
-      setRouletteUsers(json.rouletteUsers || []);
+      const names = json.rouletteUsers || [];
+      setRouletteUsers(names);
+      setReels(Array.from({ length: REEL_COUNT }, () => [...names]));
     } catch (err: any) {
       setError(err?.message || "Failed to load lists");
       setRouletteUsers([]);
+      setReels(Array(REEL_COUNT).fill([]));
     } finally {
       setLoading(false);
     }
@@ -73,30 +66,32 @@ export default function SlotMachinePage() {
     if (!rouletteUsers.length || spinning) return;
     setWinner(null);
     setSpinning(true);
-    const newSeed = Date.now();
-    setSpinSeed(newSeed);
-
+    const reelNames = shuffle(rouletteUsers);
     const newOffsets = Array(REEL_COUNT).fill(0);
     const targetIndices = Array.from({ length: REEL_COUNT }, () =>
-      Math.floor(Math.random() * (baseNames.length || 1))
+      Math.floor(Math.random() * (reelNames.length || 1))
     );
 
-    const promises = reels.map((names, idx) => {
-      const fullSpins = Math.floor(Math.random() * 5) + 5; // 5–9 full rotations
-      const duration = SPIN_DURATION_MS + idx * 400;
-      const offset =
-        -1 * segmentHeight * (fullSpins * names.length + targetIndices[idx]);
+    const newReels = Array.from({ length: REEL_COUNT }, (_, idx) => {
+      const fullSpins = Math.floor(Math.random() * 6) + 3; // 3–8 rotations
+      const repeats = fullSpins + 1;
+      const data = Array.from({ length: repeats }).flatMap(() => reelNames);
+      const offset = -1 * segmentHeight * (fullSpins * reelNames.length + targetIndices[idx]);
       newOffsets[idx] = offset;
-      return new Promise<void>((resolve) => {
-        setTimeout(() => resolve(), duration);
-      });
+      return data;
+    });
+
+    const promises = newReels.map((_, idx) => {
+      const duration = SPIN_DURATION_MS + idx * 400;
+      return new Promise<void>((resolve) => setTimeout(resolve, duration));
     });
 
     setOffsets(newOffsets);
+    setReels(newReels);
 
-    Promise.all(promises).then((results) => {
+    Promise.all(promises).then(() => {
       const midIdx = targetIndices[1] ?? targetIndices[0] ?? 0;
-      const finalName = baseNames[midIdx] || "";
+      const finalName = reelNames[midIdx] || "";
       setWinner(finalName || null);
       setSpinning(false);
       // simple confetti substitute: trigger a CSS animation via class toggle
@@ -175,7 +170,6 @@ export default function SlotMachinePage() {
             </button>
             <button
               onClick={() => {
-                setSpinSeed((s) => s + 1);
                 setOffsets(Array(REEL_COUNT).fill(0));
                 setWinner(null);
               }}
