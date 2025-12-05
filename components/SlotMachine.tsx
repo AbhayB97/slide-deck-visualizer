@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Reel } from "@/components/Reel";
 
 type ListsResponse = {
   success: boolean;
@@ -11,33 +10,30 @@ type ListsResponse = {
   error?: string;
 };
 
-const REEL_COUNT = 3;
+const VISIBLE_ROWS = 7;
+const CENTER_INDEX = 3;
 const ROW_HEIGHT = 48;
-const REEL_HEIGHT = 360;
+const REEL_HEIGHT = VISIBLE_ROWS * ROW_HEIGHT;
+const BASE_DELAY = 60;
 
-const easing = "cubic-bezier(0.2, 0.8, 0.2, 1)";
-
-function shuffle<T>(arr: T[]): T[] {
-  const copy = [...arr];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
+function randomOf(list: string[]) {
+  if (!list.length) return "";
+  return list[Math.floor(Math.random() * list.length)];
 }
 
 export function SlotMachine() {
   const [eligibleUsers, setEligibleUsers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reels, setReels] = useState<string[][]>(Array(REEL_COUNT).fill([]));
-  const [transforms, setTransforms] = useState<string[]>(Array(REEL_COUNT).fill("translateY(0)"));
-  const [transitions, setTransitions] = useState<string[]>(Array(REEL_COUNT).fill("transform 0ms linear"));
+  const [names, setNames] = useState<string[]>([]);
   const [spinning, setSpinning] = useState(false);
+  const [slowing, setSlowing] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
   const [celebrate, setCelebrate] = useState(false);
 
-  const reelDurations = useMemo(() => [2000, 2300, 2600], []);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const currentDelayRef = useRef(BASE_DELAY);
+  const winnerRef = useRef<string | null>(null);
 
   async function loadEligible() {
     try {
@@ -48,12 +44,14 @@ export function SlotMachine() {
       if (!res.ok || !json.success) {
         throw new Error(json.error || "Failed to load lists");
       }
-      setEligibleUsers(json.rouletteUsers || []);
-      setReels(Array.from({ length: REEL_COUNT }, () => [...(json.rouletteUsers || [])]));
+      const users = json.rouletteUsers || [];
+      setEligibleUsers(users);
+      const startNames = Array.from({ length: VISIBLE_ROWS }, () => randomOf(users));
+      setNames(startNames);
     } catch (err: any) {
       setError(err?.message || "Failed to load lists");
       setEligibleUsers([]);
-      setReels(Array(REEL_COUNT).fill([]));
+      setNames([]);
     } finally {
       setLoading(false);
     }
@@ -61,99 +59,101 @@ export function SlotMachine() {
 
   useEffect(() => {
     loadEligible();
+    return () => clearTimer();
   }, []);
 
-  const spin = () => {
+  const clearTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const tick = () => {
+    setNames((prev) => {
+      const next = [...prev];
+      next.shift();
+      next.push(randomOf(eligibleUsers));
+      return next;
+    });
+
+    let nextDelay = currentDelayRef.current;
+
+    if (slowing && winnerRef.current) {
+      // decelerate
+      nextDelay = Math.min(nextDelay + 30, 320);
+      // When slow enough, snap winner
+      if (nextDelay >= 300) {
+        clearTimer();
+        const final = Array.from({ length: VISIBLE_ROWS }, () => randomOf(eligibleUsers));
+        final[CENTER_INDEX] = winnerRef.current;
+        setNames(final);
+        setSpinning(false);
+        setSlowing(false);
+        setWinner(winnerRef.current);
+        setCelebrate(true);
+        setTimeout(() => setCelebrate(false), 1200);
+        currentDelayRef.current = BASE_DELAY;
+        return;
+      }
+    }
+
+    currentDelayRef.current = nextDelay;
+    clearTimer();
+    timerRef.current = setTimeout(tick, nextDelay);
+  };
+
+  const startSpin = () => {
     if (!eligibleUsers.length || spinning) return;
-    setSpinning(true);
     setWinner(null);
-    setCelebrate(false);
+    winnerRef.current = null;
+    setSpinning(true);
+    setSlowing(false);
+    currentDelayRef.current = BASE_DELAY;
+    clearTimer();
+    timerRef.current = setTimeout(tick, BASE_DELAY);
+  };
 
-    const centerOffset = (REEL_HEIGHT - ROW_HEIGHT) / 2;
-
-    // Create per-reel shuffled lists and repeated data
-    const baseLists = Array.from({ length: REEL_COUNT }, () => shuffle(eligibleUsers));
-    const reelData = baseLists.map((list) => Array.from({ length: 5 }).flatMap(() => list));
-
-    // Pick a winner from eligible list (after spin starts)
-    const winningName = eligibleUsers[Math.floor(Math.random() * eligibleUsers.length)];
-
-    // Compute target offsets with multiple spins
-    const newTransforms: string[] = Array(REEL_COUNT).fill("translateY(0)");
-    const newTransitions: string[] = Array(REEL_COUNT).fill("");
-
-    baseLists.forEach((list, idx) => {
-      const repeated = reelData[idx];
-      const baseIdx = Math.max(list.indexOf(winningName), 0);
-      const spins = Math.floor(Math.random() * 2) + 3; // 3-4 full spins
-      const repeats = spins + 2; // ensure enough rows rendered
-      const data = Array.from({ length: repeats }).flatMap(() => list);
-      reelData[idx] = data;
-      const targetIdx = spins * list.length + baseIdx + Math.floor(list.length / 2);
-      const targetOffset = -1 * targetIdx * ROW_HEIGHT + centerOffset;
-
-      // tick stub for sound
-      console.debug("tick", idx);
-
-      newTransitions[idx] = `transform ${reelDurations[idx]}ms ${easing}`;
-      newTransforms[idx] = `translateY(${targetOffset}px)`;
-    });
-
-    setReels(reelData);
-    // reset transforms before applying transitions (force reflow)
-    requestAnimationFrame(() => {
-      setTransforms(Array(REEL_COUNT).fill("translateY(0)"));
-      setTransitions(Array(REEL_COUNT).fill("transform 0ms linear"));
-      requestAnimationFrame(() => {
-        setTransitions(newTransitions);
-        setTransforms(newTransforms);
-      });
-    });
-
-    // After all reels finish, normalize and show winner
-    const maxDuration = Math.max(...reelDurations) + 50;
-    setTimeout(() => {
-      const normalizedTransforms = baseLists.map((list, idx) => {
-        const baseIdx = list.indexOf(winningName);
-        const targetIdx = baseIdx >= 0 ? baseIdx : 0;
-        const snapOffset = -1 * targetIdx * ROW_HEIGHT + centerOffset;
-        return `translateY(${snapOffset}px)`;
-      });
-      setTransitions(Array(REEL_COUNT).fill("transform 0ms linear"));
-      setTransforms(normalizedTransforms);
-      setWinner(winningName);
-      setSpinning(false);
-      setCelebrate(true);
-      setTimeout(() => setCelebrate(false), 1200);
-    }, maxDuration);
+  const stopSpin = () => {
+    if (!spinning || slowing) return;
+    const selected = randomOf(eligibleUsers);
+    winnerRef.current = selected;
+    setSlowing(true);
   };
 
   const spinAgain = () => {
     if (spinning) return;
+    clearTimer();
     setWinner(null);
-    setTransforms(Array(REEL_COUNT).fill("translateY(0)"));
-    setTransitions(Array(REEL_COUNT).fill("transform 0ms linear"));
-    spin();
+    setCelebrate(false);
+    startSpin();
   };
 
+  const scanlineStyle = {
+    backgroundImage:
+      "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
+    backgroundSize: "100% 6px, 6px 100%",
+    animation: "flicker 2s infinite",
+  } as React.CSSProperties;
+
   return (
-    <div className="min-h-screen bg-gray-100 px-6 py-8 flex justify-center font-sans">
+    <div className="min-h-screen bg-[#0b0f16] px-6 py-8 flex justify-center font-mono text-gray-100">
       <div className="w-full max-w-5xl flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-500">Draw</p>
-            <h1 className="text-3xl font-bold text-gray-900">Slot Machine</h1>
-            <p className="text-sm text-gray-600">
-              Spin the reels to pick a random compliant user. Eligible: {eligibleUsers.length}
+            <p className="text-xs uppercase tracking-wide text-teal-400">Draw</p>
+            <h1 className="text-3xl font-bold text-gray-100">Slot Machine</h1>
+            <p className="text-sm text-gray-400">
+              Spin the reel to pick a random compliant user. Eligible: {eligibleUsers.length}
             </p>
           </div>
           <div className="flex gap-3">
-            <Link href="/" className="text-sm text-blue-700 underline">
+            <Link href="/" className="text-sm text-teal-300 underline">
               Back to dashboard
             </Link>
             <button
               onClick={loadEligible}
-              className="px-3 py-2 text-sm rounded-md border bg-white text-gray-700 hover:bg-gray-50"
+              className="px-3 py-2 text-sm rounded-md border border-teal-500 text-teal-200 bg-[#111827] hover:bg-[#0f172a]"
             >
               Refresh list
             </button>
@@ -161,85 +161,120 @@ export function SlotMachine() {
         </div>
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <div className="rounded-lg border border-red-500/50 bg-red-900/30 p-4 text-sm text-red-200">
             {error}
           </div>
         )}
 
         {!loading && !eligibleUsers.length && !error && (
-          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+          <div className="rounded-lg border border-yellow-500/50 bg-yellow-900/30 p-4 text-sm text-yellow-200">
             No eligible users for this week's draw.
           </div>
         )}
 
-        <div className="bg-white rounded-2xl shadow-lg border p-6 flex flex-col gap-6">
-          <div className="flex gap-4 justify-center">
-            {reels.map((names, idx) => (
-              <Reel
-                key={idx}
-                items={names}
-                transform={transforms[idx]}
-                transition={transitions[idx]}
-                height={REEL_HEIGHT}
-                rowHeight={ROW_HEIGHT}
-              />
-            ))}
+        <div
+          className="relative rounded-2xl border border-teal-500/60 shadow-[0_0_25px_rgba(34,211,238,0.35)] p-6 bg-[#0d1117]"
+          style={scanlineStyle}
+        >
+          <div
+            className="relative mx-auto w-full max-w-md overflow-hidden rounded-xl"
+            style={{
+              height: REEL_HEIGHT,
+              border: "1px solid rgba(56,189,248,0.4)",
+              boxShadow: "0 0 20px rgba(34,211,238,0.25)",
+              backgroundColor: "#0f172a",
+            }}
+          >
+            <div className="absolute inset-0">
+              {names.map((name, idx) => (
+                <div
+                  key={`${name}-${idx}-${Math.random()}`}
+                  className="flex items-center justify-center text-sm font-semibold"
+                  style={{
+                    height: ROW_HEIGHT,
+                    color: idx === CENTER_INDEX ? "#67e8f9" : "#cbd5f5",
+                    textShadow: idx === CENTER_INDEX ? "0 0 12px rgba(103,232,249,0.8)" : "none",
+                  }}
+                >
+                  {name}
+                </div>
+              ))}
+            </div>
+            <div
+              className="pointer-events-none absolute left-0 right-0"
+              style={{
+                top: CENTER_INDEX * ROW_HEIGHT,
+                height: ROW_HEIGHT,
+                borderTop: "1px solid rgba(56,189,248,0.8)",
+                borderBottom: "1px solid rgba(56,189,248,0.8)",
+                boxShadow: "0 0 15px rgba(56,189,248,0.35)",
+                background:
+                  "linear-gradient(90deg, rgba(56,189,248,0.05), rgba(56,189,248,0.15), rgba(56,189,248,0.05))",
+              }}
+            ></div>
           </div>
 
-          <div className="flex justify-center gap-3">
+          <div className="mt-6 flex justify-center gap-3">
             <button
-              onClick={spin}
+              onClick={startSpin}
               disabled={!eligibleUsers.length || loading || spinning}
-              className="inline-flex items-center px-5 py-3 rounded-md bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+              className="inline-flex items-center px-5 py-3 rounded-md bg-teal-600 text-white text-sm font-semibold shadow-sm hover:bg-teal-500 disabled:opacity-50"
             >
-              {spinning ? "Spinning..." : "Start"}
+              {spinning ? "Spinning..." : "Spin"}
             </button>
             <button
-              onClick={() => setSpinning(false)}
+              onClick={stopSpin}
               disabled={!spinning}
-              className="inline-flex items-center px-4 py-3 rounded-md border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center px-4 py-3 rounded-md border border-gray-500 bg-[#111827] text-sm font-semibold text-gray-200 hover:bg-[#0f172a] disabled:opacity-50"
             >
               Stop
             </button>
             <button
               onClick={spinAgain}
               disabled={spinning || loading || !eligibleUsers.length}
-              className="inline-flex items-center px-4 py-3 rounded-md border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center px-4 py-3 rounded-md border border-gray-500 bg-[#111827] text-sm font-semibold text-gray-200 hover:bg-[#0f172a] disabled:opacity-50"
             >
               Spin Again
             </button>
           </div>
 
           {winner && (
-            <div className="text-center" aria-live="polite">
-              <p className="text-lg font-semibold text-gray-900">Winner</p>
-              <p className="text-2xl font-bold text-emerald-700 mt-1">{winner}</p>
+            <div className="mt-4 text-center" aria-live="polite">
+              <p className="text-sm text-gray-300">Winner</p>
+              <p className="text-2xl font-bold text-teal-300 drop-shadow-[0_0_12px_rgba(45,212,191,0.8)]">
+                {winner}
+              </p>
             </div>
           )}
         </div>
       </div>
+      <style jsx global>{`
+        @keyframes flicker {
+          0% { opacity: 0.97; }
+          50% { opacity: 1; }
+          100% { opacity: 0.96; }
+        }
+        .confetti {
+          background-image: radial-gradient(circle, rgba(16, 185, 129, 0.6) 2px, transparent 2px),
+            radial-gradient(circle, rgba(59, 130, 246, 0.6) 2px, transparent 2px),
+            radial-gradient(circle, rgba(234, 179, 8, 0.6) 2px, transparent 2px);
+          background-size: 12px 12px, 14px 14px, 16px 16px;
+          animation: confetti-fall 1.2s ease-out forwards;
+        }
+        @keyframes confetti-fall {
+          0% {
+            opacity: 0.9;
+            transform: translateY(-20%) rotate(0deg);
+          }
+          100% {
+            opacity: 0;
+            transform: translateY(20%) rotate(35deg);
+          }
+        }
+      `}</style>
       {celebrate && (
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
           <div className="absolute inset-0 confetti" />
-          <style jsx>{`
-            .confetti {
-              background-image: radial-gradient(circle, rgba(16, 185, 129, 0.6) 2px, transparent 2px),
-                radial-gradient(circle, rgba(59, 130, 246, 0.6) 2px, transparent 2px),
-                radial-gradient(circle, rgba(234, 179, 8, 0.6) 2px, transparent 2px);
-              background-size: 12px 12px, 14px 14px, 16px 16px;
-              animation: confetti-fall 1.2s ease-out forwards;
-            }
-            @keyframes confetti-fall {
-              0% {
-                opacity: 0.9;
-                transform: translateY(-20%) rotate(0deg);
-              }
-              100% {
-                opacity: 0;
-                transform: translateY(20%) rotate(35deg);
-              }
-            }
-          `}</style>
         </div>
       )}
     </div>
