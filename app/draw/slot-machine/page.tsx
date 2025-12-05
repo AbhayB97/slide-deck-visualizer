@@ -33,9 +33,9 @@ export default function SlotMachinePage() {
   const [reels, setReels] = useState<string[][]>(Array(REEL_COUNT).fill([]));
 
   const segmentHeight = useMemo(() => {
-    const maxDisplay = Math.min(10, rouletteUsers.length || 1);
-    return Math.max(32, Math.floor(REEL_HEIGHT / maxDisplay));
-  }, [rouletteUsers]);
+    // Fixed-ish height to keep a single row in view.
+    return 48;
+  }, []);
 
   async function loadLists() {
     try {
@@ -71,12 +71,15 @@ export default function SlotMachinePage() {
     const targetIndices = Array.from({ length: REEL_COUNT }, () =>
       Math.floor(Math.random() * (reelNames.length || 1))
     );
+    const centerOffset = (REEL_HEIGHT - segmentHeight) / 2;
 
     const newReels = Array.from({ length: REEL_COUNT }, (_, idx) => {
       const fullSpins = Math.floor(Math.random() * 6) + 3; // 3–8 rotations
       const repeats = fullSpins + 1;
       const data = Array.from({ length: repeats }).flatMap(() => reelNames);
-      const offset = -1 * segmentHeight * (fullSpins * reelNames.length + targetIndices[idx]);
+      const offset =
+        -1 * segmentHeight * (fullSpins * reelNames.length + targetIndices[idx]) +
+        centerOffset;
       newOffsets[idx] = offset;
       return data;
     });
@@ -155,7 +158,13 @@ export default function SlotMachinePage() {
                     </div>
                   ))}
                 </div>
-                <div className="pointer-events-none absolute inset-y-1/3 left-0 right-0 border-y border-blue-300"></div>
+                <div
+                  className="pointer-events-none absolute left-0 right-0 border-y border-blue-300"
+                  style={{
+                    top: (REEL_HEIGHT - segmentHeight) / 2,
+                    height: segmentHeight,
+                  }}
+                ></div>
               </div>
             ))}
           </div>
