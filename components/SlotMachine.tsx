@@ -36,6 +36,7 @@ export function SlotMachine() {
   const currentDelayRef = useRef(BASE_DELAY);
   const winnerRef = useRef<string | null>(null);
   const slowingRef = useRef(false);
+  const spinningRef = useRef(false);
 
   async function loadEligible() {
     try {
@@ -101,6 +102,7 @@ export function SlotMachine() {
         final[CENTER_INDEX] = winnerRef.current;
         setNames(final);
         setSpinning(false);
+        spinningRef.current = false;
         setSlowing(false);
         slowingRef.current = false;
         setWinner(winnerRef.current);
@@ -117,10 +119,11 @@ export function SlotMachine() {
   };
 
   const startSpin = () => {
-    if (!eligibleUsers.length || spinning) return;
+    if (!eligibleUsers.length || spinningRef.current) return;
     setWinner(null);
     winnerRef.current = null;
     setSpinning(true);
+    spinningRef.current = true;
     setSlowing(false);
     slowingRef.current = false;
     currentDelayRef.current = BASE_DELAY;
@@ -128,14 +131,14 @@ export function SlotMachine() {
     clearAutoStop();
     timerRef.current = setTimeout(tick, BASE_DELAY);
 
-    // Auto-stop after a random duration between 5s and 9s
-    const duration = 5000 + Math.random() * 4000;
+    // Auto-stop after a random duration between 3s and 5s
+    const duration = 3000 + Math.random() * 2000;
     autoStopRef.current = setTimeout(() => stopSpin(), duration);
   };
 
   const stopSpin = () => {
     clearAutoStop();
-    if (!spinning || slowing) return;
+    if (!spinningRef.current || slowingRef.current) return;
     const selected = randomOf(eligibleUsers);
     winnerRef.current = selected;
     setSlowing(true);
