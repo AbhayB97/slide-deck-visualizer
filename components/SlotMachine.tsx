@@ -249,8 +249,8 @@ export function SlotMachine() {
                   className="flex items-center justify-center text-sm font-semibold"
                   style={{
                     height: ROW_HEIGHT,
-                    color: idx === CENTER_INDEX ? "#67e8f9" : "#cbd5f5",
-                    textShadow: idx === CENTER_INDEX ? "0 0 12px rgba(103,232,249,0.8)" : "none",
+                    color: idx === CENTER_INDEX ? "#fbbf24" : "#cbd5f5",
+                    textShadow: idx === CENTER_INDEX ? "0 0 14px rgba(251,191,36,0.9)" : "none",
                   }}
                 >
                   {name}
@@ -284,7 +284,11 @@ export function SlotMachine() {
           {winner && (
             <div className="mt-4 text-center" aria-live="polite">
               <p className="text-sm text-gray-300">Winner</p>
-              <p className="text-2xl font-bold text-teal-300 drop-shadow-[0_0_12px_rgba(45,212,191,0.8)]">
+              <p className="relative inline-flex items-center justify-center text-2xl font-bold text-amber-300 drop-shadow-[0_0_14px_rgba(251,191,36,0.85)]">
+                <span className="absolute inset-0" aria-hidden="true">
+                  <span className="burst-layer burst-layer-1" />
+                  <span className="burst-layer burst-layer-2" />
+                </span>
                 {winner}
               </p>
             </div>
@@ -297,27 +301,38 @@ export function SlotMachine() {
           50% { opacity: 1; }
           100% { opacity: 0.96; }
         }
-        .confetti {
-          background-image: radial-gradient(circle, rgba(16, 185, 129, 0.6) 2px, transparent 2px),
-            radial-gradient(circle, rgba(59, 130, 246, 0.6) 2px, transparent 2px),
-            radial-gradient(circle, rgba(234, 179, 8, 0.6) 2px, transparent 2px);
-          background-size: 12px 12px, 14px 14px, 16px 16px;
-          animation: confetti-fall 1.2s ease-out forwards;
+        .burst-layer {
+          position: absolute;
+          inset: -16px;
+          display: block;
+          border-radius: 50%;
+          background:
+            repeating-conic-gradient(
+              from 0deg,
+              rgba(251,191,36,0.55) 0deg,
+              rgba(251,191,36,0.55) 6deg,
+              transparent 6deg,
+              transparent 12deg
+            );
+          mask-image: radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.05) 32%, rgba(0,0,0,0.9) 60%);
+          animation: spin-burst 2s linear infinite;
+          opacity: 0.8;
         }
-        @keyframes confetti-fall {
-          0% {
-            opacity: 0.9;
-            transform: translateY(-20%) rotate(0deg);
-          }
-          100% {
-            opacity: 0;
-            transform: translateY(20%) rotate(35deg);
-          }
+        .burst-layer-2 {
+          inset: -10px;
+          opacity: 0.6;
+          animation-duration: 1.6s;
+          animation-direction: reverse;
+        }
+        @keyframes spin-burst {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
       `}</style>
       {celebrate && (
-        <div className="fixed inset-0 pointer-events-none overflow-hidden">
-          <div className="absolute inset-0 confetti" />
+        <div className="fixed inset-0 pointer-events-none flex items-center justify-center">
+          <div className="burst-layer burst-layer-1" style={{ width: 220, height: 220 }} />
+          <div className="burst-layer burst-layer-2" style={{ width: 170, height: 170 }} />
         </div>
       )}
     </div>
