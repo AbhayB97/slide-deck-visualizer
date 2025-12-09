@@ -32,6 +32,7 @@ export function SlotMachine() {
   const [celebrate, setCelebrate] = useState(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoStopRef = useRef<NodeJS.Timeout | null>(null);
   const currentDelayRef = useRef(BASE_DELAY);
   const winnerRef = useRef<string | null>(null);
   const slowingRef = useRef(false);
@@ -60,13 +61,23 @@ export function SlotMachine() {
 
   useEffect(() => {
     loadEligible();
-    return () => clearTimer();
+    return () => {
+      clearTimer();
+      clearAutoStop();
+    };
   }, []);
 
   const clearTimer = () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
+    }
+  };
+
+  const clearAutoStop = () => {
+    if (autoStopRef.current) {
+      clearTimeout(autoStopRef.current);
+      autoStopRef.current = null;
     }
   };
 
@@ -114,10 +125,16 @@ export function SlotMachine() {
     slowingRef.current = false;
     currentDelayRef.current = BASE_DELAY;
     clearTimer();
+    clearAutoStop();
     timerRef.current = setTimeout(tick, BASE_DELAY);
+
+    // Auto-stop after a random duration between 6s and 9s
+    const duration = 6000 + Math.random() * 3000;
+    autoStopRef.current = setTimeout(() => stopSpin(), duration);
   };
 
   const stopSpin = () => {
+    clearAutoStop();
     if (!spinning || slowing) return;
     const selected = randomOf(eligibleUsers);
     winnerRef.current = selected;
@@ -128,6 +145,7 @@ export function SlotMachine() {
   const spinAgain = () => {
     if (spinning) return;
     clearTimer();
+    clearAutoStop();
     setWinner(null);
     setSlowing(false);
     slowingRef.current = false;
