@@ -66,6 +66,7 @@ async function saveHistoryIndex(index: HistoryIndex): Promise<HistoryIndex> {
   await put(HISTORY_INDEX_PATH, blob, {
     access: 'public',
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: 'application/json',
     token: process.env.BLOB_READ_WRITE_TOKEN,
   });
