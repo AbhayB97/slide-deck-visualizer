@@ -34,6 +34,7 @@ export function SlotMachine() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const currentDelayRef = useRef(BASE_DELAY);
   const winnerRef = useRef<string | null>(null);
+  const slowingRef = useRef(false);
 
   async function loadEligible() {
     try {
@@ -79,7 +80,7 @@ export function SlotMachine() {
 
     let nextDelay = currentDelayRef.current;
 
-    if (slowing && winnerRef.current) {
+    if (slowingRef.current && winnerRef.current) {
       // decelerate
       nextDelay = Math.min(nextDelay + 30, 320);
       // When slow enough, snap winner
@@ -90,6 +91,7 @@ export function SlotMachine() {
         setNames(final);
         setSpinning(false);
         setSlowing(false);
+        slowingRef.current = false;
         setWinner(winnerRef.current);
         setCelebrate(true);
         setTimeout(() => setCelebrate(false), 1200);
@@ -109,6 +111,7 @@ export function SlotMachine() {
     winnerRef.current = null;
     setSpinning(true);
     setSlowing(false);
+    slowingRef.current = false;
     currentDelayRef.current = BASE_DELAY;
     clearTimer();
     timerRef.current = setTimeout(tick, BASE_DELAY);
@@ -119,12 +122,15 @@ export function SlotMachine() {
     const selected = randomOf(eligibleUsers);
     winnerRef.current = selected;
     setSlowing(true);
+    slowingRef.current = true;
   };
 
   const spinAgain = () => {
     if (spinning) return;
     clearTimer();
     setWinner(null);
+    setSlowing(false);
+    slowingRef.current = false;
     setCelebrate(false);
     startSpin();
   };
