@@ -27,16 +27,16 @@ export function SlotMachine() {
   const [error, setError] = useState<string | null>(null);
   const [names, setNames] = useState<string[]>([]);
   const [spinning, setSpinning] = useState(false);
-  const [slowing, setSlowing] = useState(false);
+  const [decelerating, setDecelerating] = useState(false);
+  const [locked, setLocked] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
   const [celebrate, setCelebrate] = useState(false);
 
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const autoStopRef = useRef<NodeJS.Timeout | null>(null);
-  const currentDelayRef = useRef(BASE_DELAY);
-  const winnerRef = useRef<string | null>(null);
-  const slowingRef = useRef(false);
+  const spinIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const decelTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const namesRef = useRef<string[]>([]);
   const spinningRef = useRef(false);
+  const deceleratingRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const drumOscRef = useRef<OscillatorNode | null>(null);
   const drumGainRef = useRef<GainNode | null>(null);
@@ -66,89 +66,111 @@ export function SlotMachine() {
   useEffect(() => {
     loadEligible();
     return () => {
-      clearTimer();
-      clearAutoStop();
+      clearSpinInterval();
+      clearDecelTimeout();
       stopDrumroll(true);
     };
   }, []);
 
-  const clearTimer = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
+  useEffect(() => {
+    namesRef.current = names;
+  }, [names]);
+
+  const clearSpinInterval = () => {
+    if (spinIntervalRef.current) {
+      clearInterval(spinIntervalRef.current);
+      spinIntervalRef.current = null;
     }
   };
 
-  const clearAutoStop = () => {
-    if (autoStopRef.current) {
-      clearTimeout(autoStopRef.current);
-      autoStopRef.current = null;
+  const clearDecelTimeout = () => {
+    if (decelTimeoutRef.current) {
+      clearTimeout(decelTimeoutRef.current);
+      decelTimeoutRef.current = null;
     }
   };
 
-  const tick = () => {
-    setNames((prev) => {
-      const next = [...prev];
-      next.shift();
-      next.push(randomOf(eligibleUsers));
-      return next;
-    });
+  const safeRandomName = (fallbackList?: string[]) => {
+    if (eligibleUsers.length) return randomOf(eligibleUsers);
+    const fallback = (fallbackList || namesRef.current).find((n) => n) || "";
+    return fallback || "";
+  };
 
-    let nextDelay = currentDelayRef.current;
-
-    if (slowingRef.current && winnerRef.current) {
-      // decelerate
-      nextDelay = Math.min(nextDelay + 30, 320);
-      // When slow enough, snap winner
-      if (nextDelay >= 300) {
-        clearTimer();
-        const final = Array.from({ length: VISIBLE_ROWS }, () => randomOf(eligibleUsers));
-        final[CENTER_INDEX] = winnerRef.current;
-        setNames(final);
-        setSpinning(false);
-        spinningRef.current = false;
-        setSlowing(false);
-        slowingRef.current = false;
-        setWinner(winnerRef.current);
-        stopDrumroll();
-        setCelebrate(true);
-        setTimeout(() => setCelebrate(false), 1200);
-        currentDelayRef.current = BASE_DELAY;
-        return;
-      }
-    }
-
-    currentDelayRef.current = nextDelay;
-    clearTimer();
-    timerRef.current = setTimeout(tick, nextDelay);
+  const rotateNames = (current: string[]) => {
+    const source = current.length ? current : Array.from({ length: VISIBLE_ROWS }, () => safeRandomName(current));
+    const next = [...source];
+    next.shift();
+    next.push(safeRandomName(source));
+    return next;
   };
 
   const startSpin = () => {
-    if (!eligibleUsers.length || spinningRef.current) return;
+    if (!eligibleUsers.length || spinningRef.current || deceleratingRef.current || locked) return;
     setWinner(null);
-    winnerRef.current = null;
     setSpinning(true);
     spinningRef.current = true;
-    setSlowing(false);
-    slowingRef.current = false;
-    currentDelayRef.current = BASE_DELAY;
-    clearTimer();
-    clearAutoStop();
-    timerRef.current = setTimeout(tick, BASE_DELAY);
-
-    // Auto-stop after a random duration between 3s and 5s
-    const duration = 3000 + Math.random() * 2000;
-    autoStopRef.current = setTimeout(() => stopSpin(), duration);
+    setDecelerating(false);
+    deceleratingRef.current = false;
+    setLocked(false);
+    clearSpinInterval();
+    clearDecelTimeout();
+    const seed = names.length ? names : Array.from({ length: VISIBLE_ROWS }, () => safeRandomName(names));
+    setNames(seed);
+    spinIntervalRef.current = setInterval(() => {
+      setNames((prev) => rotateNames(prev));
+    }, BASE_DELAY);
     startDrumroll();
   };
 
   const stopSpin = () => {
-    clearAutoStop();
-    if (!spinningRef.current || slowingRef.current) return;
+    if (!spinningRef.current || deceleratingRef.current) return;
+    clearSpinInterval();
+    clearDecelTimeout();
+    setDecelerating(true);
+    deceleratingRef.current = true;
     const selected = randomOf(eligibleUsers);
-    winnerRef.current = selected;
-    setSlowing(true);
-    slowingRef.current = true;
+    runDeceleration(selected);
+  };
+
+  const runDeceleration = (selected: string) => {
+    const steps = 8;
+    const base = 90;
+    const increment = 55;
+
+    const stepper = (step: number) => {
+      if (step >= steps) {
+        const finalNames = Array.from({ length: VISIBLE_ROWS }, (_, idx) =>
+          idx === CENTER_INDEX ? selected : safeRandomName(namesRef.current)
+        );
+        setNames(finalNames);
+        setWinner(selected);
+        setSpinning(false);
+        spinningRef.current = false;
+        setDecelerating(false);
+        deceleratingRef.current = false;
+        setLocked(true);
+        stopDrumroll();
+        setCelebrate(true);
+        setTimeout(() => setCelebrate(false), 1200);
+        return;
+      }
+
+      setNames((prev) => rotateNames(prev));
+      const delay = base + step * increment;
+      decelTimeoutRef.current = setTimeout(() => stepper(step + 1), delay);
+    };
+
+    stepper(0);
+  };
+
+  const spinAgain = () => {
+    if (spinningRef.current || deceleratingRef.current) return;
+    clearSpinInterval();
+    clearDecelTimeout();
+    setWinner(null);
+    setLocked(false);
+    setCelebrate(false);
+    startSpin();
   };
 
   const startDrumroll = () => {
@@ -250,7 +272,8 @@ export function SlotMachine() {
                   style={{
                     height: ROW_HEIGHT,
                     color: idx === CENTER_INDEX ? "#67e8f9" : "#cbd5f5",
-                    textShadow: idx === CENTER_INDEX ? "0 0 12px rgba(103,232,249,0.8)" : "none",
+                    textShadow: idx === CENTER_INDEX ? "0 0 14px rgba(103,232,249,0.9)" : "none",
+                    background: idx === CENTER_INDEX ? "linear-gradient(90deg, rgba(14,165,233,0.08), rgba(34,211,238,0.14), rgba(14,165,233,0.08))" : "transparent",
                   }}
                 >
                   {name}
@@ -274,10 +297,24 @@ export function SlotMachine() {
           <div className="mt-6 flex justify-center gap-3">
             <button
               onClick={startSpin}
-              disabled={!eligibleUsers.length || loading || spinning}
+              disabled={!eligibleUsers.length || loading || spinning || decelerating || locked}
               className="inline-flex items-center px-5 py-3 rounded-md bg-teal-600 text-white text-sm font-semibold shadow-sm hover:bg-teal-500 disabled:opacity-50"
             >
               {spinning ? "Spinning..." : "Spin"}
+            </button>
+            <button
+              onClick={stopSpin}
+              disabled={!spinning || decelerating}
+              className="inline-flex items-center px-4 py-3 rounded-md border border-gray-500 bg-[#111827] text-sm font-semibold text-gray-200 hover:bg-[#0f172a] disabled:opacity-50"
+            >
+              Stop
+            </button>
+            <button
+              onClick={spinAgain}
+              disabled={spinning || decelerating || !locked}
+              className="inline-flex items-center px-4 py-3 rounded-md border border-gray-500 bg-[#111827] text-sm font-semibold text-gray-200 hover:bg-[#0f172a] disabled:opacity-50"
+            >
+              Spin Again
             </button>
           </div>
 
