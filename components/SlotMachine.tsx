@@ -128,8 +128,8 @@ export function SlotMachine() {
     clearAutoStop();
     timerRef.current = setTimeout(tick, BASE_DELAY);
 
-    // Auto-stop after a random duration between 6s and 9s
-    const duration = 6000 + Math.random() * 3000;
+    // Auto-stop after a random duration between 5s and 9s
+    const duration = 5000 + Math.random() * 4000;
     autoStopRef.current = setTimeout(() => stopSpin(), duration);
   };
 
@@ -140,17 +140,6 @@ export function SlotMachine() {
     winnerRef.current = selected;
     setSlowing(true);
     slowingRef.current = true;
-  };
-
-  const spinAgain = () => {
-    if (spinning) return;
-    clearTimer();
-    clearAutoStop();
-    setWinner(null);
-    setSlowing(false);
-    slowingRef.current = false;
-    setCelebrate(false);
-    startSpin();
   };
 
   const scanlineStyle = {
@@ -245,20 +234,6 @@ export function SlotMachine() {
               className="inline-flex items-center px-5 py-3 rounded-md bg-teal-600 text-white text-sm font-semibold shadow-sm hover:bg-teal-500 disabled:opacity-50"
             >
               {spinning ? "Spinning..." : "Spin"}
-            </button>
-            <button
-              onClick={stopSpin}
-              disabled={!spinning}
-              className="inline-flex items-center px-4 py-3 rounded-md border border-gray-500 bg-[#111827] text-sm font-semibold text-gray-200 hover:bg-[#0f172a] disabled:opacity-50"
-            >
-              Stop
-            </button>
-            <button
-              onClick={spinAgain}
-              disabled={spinning || loading || !eligibleUsers.length}
-              className="inline-flex items-center px-4 py-3 rounded-md border border-gray-500 bg-[#111827] text-sm font-semibold text-gray-200 hover:bg-[#0f172a] disabled:opacity-50"
-            >
-              Spin Again
             </button>
           </div>
 
