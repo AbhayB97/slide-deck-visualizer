@@ -37,6 +37,9 @@ export function SlotMachine() {
   const winnerRef = useRef<string | null>(null);
   const slowingRef = useRef(false);
   const spinningRef = useRef(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const drumOscRef = useRef<OscillatorNode | null>(null);
+  const drumGainRef = useRef<GainNode | null>(null);
 
   async function loadEligible() {
     try {
@@ -65,6 +68,7 @@ export function SlotMachine() {
     return () => {
       clearTimer();
       clearAutoStop();
+      stopDrumroll(true);
     };
   }, []);
 
@@ -106,6 +110,7 @@ export function SlotMachine() {
         setSlowing(false);
         slowingRef.current = false;
         setWinner(winnerRef.current);
+        stopDrumroll();
         setCelebrate(true);
         setTimeout(() => setCelebrate(false), 1200);
         currentDelayRef.current = BASE_DELAY;
@@ -134,6 +139,7 @@ export function SlotMachine() {
     // Auto-stop after a random duration between 3s and 5s
     const duration = 3000 + Math.random() * 2000;
     autoStopRef.current = setTimeout(() => stopSpin(), duration);
+    startDrumroll();
   };
 
   const stopSpin = () => {
@@ -143,6 +149,41 @@ export function SlotMachine() {
     winnerRef.current = selected;
     setSlowing(true);
     slowingRef.current = true;
+  };
+
+  const startDrumroll = () => {
+    if (drumOscRef.current) return;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = audioCtxRef.current || new AudioCtx();
+    audioCtxRef.current = ctx;
+    const gain = ctx.createGain();
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.value = 120;
+    gain.gain.value = 0;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    const now = ctx.currentTime;
+    gain.gain.linearRampToValueAtTime(0.03, now + 0.05);
+    drumOscRef.current = osc;
+    drumGainRef.current = gain;
+  };
+
+  const stopDrumroll = (immediate = false) => {
+    const osc = drumOscRef.current;
+    const gain = drumGainRef.current;
+    const ctx = audioCtxRef.current;
+    if (!osc || !gain || !ctx) return;
+    const now = ctx.currentTime;
+    if (immediate) {
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(0, now);
+    } else {
+      gain.gain.linearRampToValueAtTime(0, now + 0.2);
+    }
+    osc.stop(now + (immediate ? 0 : 0.25));
+    drumOscRef.current = null;
+    drumGainRef.current = null;
   };
 
   const scanlineStyle = {
