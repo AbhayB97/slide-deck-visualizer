@@ -16,9 +16,55 @@ const ROW_HEIGHT = 48;
 const REEL_HEIGHT = VISIBLE_ROWS * ROW_HEIGHT;
 const BASE_DELAY = 60;
 
-function randomOf(list: string[]) {
+function randomOf(list: string[], exclude?: string) {
   if (!list.length) return "";
-  return list[Math.floor(Math.random() * list.length)];
+  if (!exclude || list.length === 1) {
+    return list[Math.floor(Math.random() * list.length)];
+  }
+  let pick = exclude;
+  let attempts = 0;
+  while (pick === exclude && attempts < 8) {
+    pick = list[Math.floor(Math.random() * list.length)];
+    attempts += 1;
+  }
+  if (pick === exclude) {
+    const filtered = list.filter((name) => name !== exclude);
+    if (filtered.length) {
+      return filtered[Math.floor(Math.random() * filtered.length)];
+    }
+  }
+  return pick;
+}
+
+function buildReel(list: string[], centerName?: string) {
+  const reel: string[] = [];
+  for (let i = 0; i < VISIBLE_ROWS; i += 1) {
+    if (centerName && i === CENTER_INDEX) {
+      reel.push(centerName);
+      continue;
+    }
+    const prev = reel[i - 1];
+    reel.push(randomOf(list, prev));
+  }
+
+  if (centerName && list.length > 1) {
+    const prevIndex = CENTER_INDEX - 1;
+    const nextIndex = CENTER_INDEX + 1;
+    if (prevIndex >= 0 && reel[prevIndex] === centerName) {
+      reel[prevIndex] = randomOf(list, centerName);
+    }
+    if (nextIndex < VISIBLE_ROWS && reel[nextIndex] === centerName) {
+      reel[nextIndex] = randomOf(list, centerName);
+    }
+    if (prevIndex - 1 >= 0 && reel[prevIndex] === reel[prevIndex - 1]) {
+      reel[prevIndex] = randomOf(list, reel[prevIndex - 1]);
+    }
+    if (nextIndex + 1 < VISIBLE_ROWS && reel[nextIndex] === reel[nextIndex + 1]) {
+      reel[nextIndex] = randomOf(list, reel[nextIndex + 1]);
+    }
+  }
+
+  return reel;
 }
 
 export function SlotMachine() {
@@ -52,8 +98,7 @@ export function SlotMachine() {
       }
       const users = json.rouletteUsers || [];
       setEligibleUsers(users);
-      const startNames = Array.from({ length: VISIBLE_ROWS }, () => randomOf(users));
-      setNames(startNames);
+      setNames(buildReel(users));
     } catch (err: any) {
       setError(err?.message || "Failed to load lists");
       setEligibleUsers([]);
@@ -90,7 +135,7 @@ export function SlotMachine() {
     setNames((prev) => {
       const next = [...prev];
       next.shift();
-      next.push(randomOf(eligibleUsers));
+      next.push(randomOf(eligibleUsers, next[next.length - 1]));
       return next;
     });
 
@@ -102,9 +147,7 @@ export function SlotMachine() {
       // When slow enough, snap winner
       if (nextDelay >= 300) {
         clearTimer();
-        const final = Array.from({ length: VISIBLE_ROWS }, () => randomOf(eligibleUsers));
-        final[CENTER_INDEX] = winnerRef.current;
-        setNames(final);
+        setNames(buildReel(eligibleUsers, winnerRef.current));
         setSpinning(false);
         spinningRef.current = false;
         setSlowing(false);
@@ -245,7 +288,7 @@ export function SlotMachine() {
             <div className="absolute inset-0">
               {names.map((name, idx) => (
                 <div
-                  key={`${name}-${idx}-${Math.random()}`}
+                  key={`${idx}-${name}`}
                   className="flex items-center justify-center text-sm font-semibold"
                   style={{
                     height: ROW_HEIGHT,

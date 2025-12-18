@@ -20,9 +20,14 @@ import {
 } from "lucide-react";
 import { RotateCw } from "lucide-react";
 
+const NO_SNAPSHOT_MESSAGE =
+  "No snapshot available. Ask the admin to upload this week's CSV.";
+
 /* ---------- Helpers ---------- */
 const shortName = (fullName) => {
-  const parts = fullName.trim().split(/\s+/);
+  const safeName = typeof fullName === "string" ? fullName : "";
+  const parts = safeName.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "Unknown";
   const first = parts[0] || "";
   const lastInitial = parts[1] ? parts[1][0].toUpperCase() + "." : "";
   return `${first} ${lastInitial}`.trim();
@@ -46,6 +51,7 @@ export default function SlideDeckVisualizer() {
   const [loadingSnapshot, setLoadingSnapshot] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState(null);
+  const [statusNotice, setStatusNotice] = useState(null); // friendly states for missing/empty snapshots
   const [history, setHistory] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState(null);
 
@@ -83,25 +89,60 @@ export default function SlideDeckVisualizer() {
     try {
       setLoadingSnapshot(true);
       setError(null);
+      setStatusNotice(null);
       const endpoint = weekId
         ? `/api/snapshot?week=${encodeURIComponent(weekId)}`
         : "/api/latest-snapshot";
       const res = await fetch(endpoint);
       const json = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        throw new Error(json?.error || "No snapshot found. Upload a CSV first.");
+        const message =
+          weekId === null
+            ? NO_SNAPSHOT_MESSAGE
+            : json?.error || "Unable to load the requested snapshot.";
+        setSnapshot(null);
+        setStatusNotice({ type: "missing", message });
+        return;
       }
-      const snapshotData = json?.snapshot ?? json;
-      if (!snapshotData?.parsedRows || snapshotData.parsedRows.length === 0) {
-        throw new Error("No snapshot data available");
+
+      const snapshotData = json?.snapshot ?? json ?? {};
+      const parsed =
+        Array.isArray(snapshotData?.parsedRows) && snapshotData.parsedRows.length
+          ? snapshotData.parsedRows
+          : Array.isArray(snapshotData?.parsedRows)
+          ? []
+          : null;
+
+      if (!parsed) {
+        setSnapshot(null);
+        setStatusNotice({ type: "missing", message: NO_SNAPSHOT_MESSAGE });
+        return;
       }
+
       setSelectedUser(null);
-      setSnapshot(snapshotData);
+      setSnapshot({ ...snapshotData, parsedRows: parsed });
       if (snapshotData.weekId) {
         setSelectedWeek(snapshotData.weekId);
       }
+
+      if (!parsed.length) {
+        setStatusNotice({
+          type: "empty",
+          message:
+            "Snapshot contains zero parsed rows. Upload a CSV with data to see charts and heatmaps.",
+        });
+        return;
+      }
+
+      setStatusNotice(null);
     } catch (err) {
-      setError(err.message);
+      const fallback =
+        weekId === null
+          ? NO_SNAPSHOT_MESSAGE
+          : "Unable to load snapshot right now. Please try again.";
+      setStatusNotice({ type: "missing", message: fallback });
+      setError(err?.message || fallback);
       setSnapshot(null);
     } finally {
       setLoadingSnapshot(false);
@@ -111,6 +152,8 @@ export default function SlideDeckVisualizer() {
   async function loadHistory() {
     try {
       setLoadingHistory(true);
+      setError(null);
+      setStatusNotice(null);
       const res = await fetch("/api/history");
       if (!res.ok) {
         throw new Error("Failed to load history");
@@ -128,7 +171,7 @@ export default function SlideDeckVisualizer() {
       await loadSnapshot(targetWeek);
     } catch (err) {
       setHistory([]);
-      setError(err.message);
+      setError(null);
       await loadSnapshot(null);
     } finally {
       setLoadingHistory(false);
@@ -147,7 +190,10 @@ export default function SlideDeckVisualizer() {
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || "Failed to load lists");
       }
-      setRouletteUsers(json.rouletteUsers || []);
+      const users = Array.isArray(json?.rouletteUsers)
+        ? json.rouletteUsers.filter(Boolean)
+        : [];
+      setRouletteUsers(users);
     } catch (err) {
       setListsError(err.message);
       setRouletteUsers([]);
@@ -165,7 +211,7 @@ export default function SlideDeckVisualizer() {
   };
 
   /* ---------- Derived Data from Snapshot ---------- */
-  const parsedRows = snapshot?.parsedRows || [];
+  const parsedRows = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
   const offenderRows = parsedRows.filter(isOffender);
 
   const offenderCounts = useMemo(() => {
@@ -177,11 +223,11 @@ export default function SlideDeckVisualizer() {
   }, [offenderRows]);
 
   const data = Object.entries(offenderCounts).map(([name, value]) => ({
-    name,
+    name: name || "Unknown",
     value,
   }));
 
-  const sortedData = data.sort((a, b) => b.value - a.value);
+  const sortedData = [...data].sort((a, b) => b.value - a.value);
   const totalTasks = sortedData.reduce((a, b) => a + b.value, 0);
   const averageTasks = sortedData.length
     ? (totalTasks / sortedData.length).toFixed(1)
@@ -229,7 +275,7 @@ export default function SlideDeckVisualizer() {
     );
   }
 
-  if (error) {
+  if (error && !statusNotice) {
     return (
       <div
         className="min-h-screen flex flex-col items-center justify-center text-red-700"
@@ -252,11 +298,43 @@ export default function SlideDeckVisualizer() {
     );
   }
 
+  if (statusNotice?.message) {
+    const isMissing = statusNotice.type === "missing";
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center text-gray-700">
+        <AlertCircle size={48} className="mb-4 text-amber-500" />
+        <p className="text-xl font-bold text-center max-w-xl">{statusNotice.message}</p>
+        <p className="mt-2 text-center text-gray-500 max-w-xl">
+          {isMissing
+            ? "We could not load the latest snapshot. Check with an admin and try again."
+            : "This snapshot has no rows to visualize yet. Upload data and then retry."}
+        </p>
+        <button
+          onClick={() => loadSnapshot(selectedWeek ?? null)}
+          className="mt-6 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800"
+          aria-label="Retry loading snapshot"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   if (!parsedRows.length) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-gray-500">
-        <p className="text-xl font-bold">No data available</p>
-        <p className="mt-2 text-gray-500">Ask admin to upload a CSV.</p>
+      <div className="min-h-screen flex flex-col items-center justify-center text-gray-600">
+        <AlertCircle size={40} className="mb-3 text-amber-500" />
+        <p className="text-xl font-bold text-center">Snapshot contains zero parsed rows.</p>
+        <p className="mt-2 text-center text-gray-500">
+          Upload a CSV with data to see charts, then retry loading the dashboard.
+        </p>
+        <button
+          onClick={() => loadSnapshot(selectedWeek ?? null)}
+          className="mt-6 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800"
+          aria-label="Retry loading snapshot after upload"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -489,7 +567,9 @@ export default function SlideDeckVisualizer() {
                   ) : rouletteUsers.length ? (
                     <p className="text-sm text-gray-600">Tap spin to select a random user</p>
                   ) : (
-                    <p className="text-sm text-gray-500">No eligible users</p>
+                    <p className="text-sm text-gray-500">
+                      No eligible users this week. Everyone has pending training.
+                    </p>
                   )}
                 </div>
               </div>

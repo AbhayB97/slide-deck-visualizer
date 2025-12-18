@@ -49,7 +49,16 @@ export async function getCsv(urlOrPath: string): Promise<string> {
         const message = res.status === 404 ? 'File not found or expired' : `Failed to download CSV: ${res.status} ${res.statusText}`;
         throw new Error(message);
       }
-      return res.text();
+      const buffer = await res.arrayBuffer();
+      const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+      if (!utf8.includes('\uFFFD')) {
+        return utf8;
+      }
+      try {
+        return new TextDecoder('windows-1252').decode(buffer);
+      } catch {
+        return utf8;
+      }
     };
 
     if (isUrl) {
