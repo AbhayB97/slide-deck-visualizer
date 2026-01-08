@@ -80,9 +80,9 @@ export function SlotMachine() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const autoStopRef = useRef<NodeJS.Timeout | null>(null);
   const currentDelayRef = useRef(BASE_DELAY);
-  const winnerRef = useRef<string | null>(null);
   const slowingRef = useRef(false);
   const spinningRef = useRef(false);
+  const namesRef = useRef<string[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const drumOscRef = useRef<OscillatorNode | null>(null);
   const drumGainRef = useRef<GainNode | null>(null);
@@ -117,6 +117,10 @@ export function SlotMachine() {
     };
   }, []);
 
+  useEffect(() => {
+    namesRef.current = names;
+  }, [names]);
+
   const clearTimer = () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -132,27 +136,21 @@ export function SlotMachine() {
   };
 
   const tick = () => {
-    setNames((prev) => {
-      const next = [...prev];
-      next.shift();
-      next.push(randomOf(eligibleUsers, next[next.length - 1]));
-      return next;
-    });
-
     let nextDelay = currentDelayRef.current;
 
-    if (slowingRef.current && winnerRef.current) {
+    if (slowingRef.current) {
       // decelerate
       nextDelay = Math.min(nextDelay + 30, 320);
-      // When slow enough, snap winner
+      // When slow enough, stop on the current center name
       if (nextDelay >= 300) {
+        const finalWinner = namesRef.current[CENTER_INDEX] || randomOf(eligibleUsers);
         clearTimer();
-        setNames(buildReel(eligibleUsers, winnerRef.current));
+        setNames(buildReel(eligibleUsers, finalWinner));
         setSpinning(false);
         spinningRef.current = false;
         setSlowing(false);
         slowingRef.current = false;
-        setWinner(winnerRef.current);
+        setWinner(finalWinner || null);
         stopDrumroll();
         setCelebrate(true);
         setTimeout(() => setCelebrate(false), 1200);
@@ -160,6 +158,13 @@ export function SlotMachine() {
         return;
       }
     }
+
+    setNames((prev) => {
+      const next = [...prev];
+      next.shift();
+      next.push(randomOf(eligibleUsers, next[next.length - 1]));
+      return next;
+    });
 
     currentDelayRef.current = nextDelay;
     clearTimer();
@@ -169,7 +174,6 @@ export function SlotMachine() {
   const startSpin = () => {
     if (!eligibleUsers.length || spinningRef.current) return;
     setWinner(null);
-    winnerRef.current = null;
     setSpinning(true);
     spinningRef.current = true;
     setSlowing(false);
@@ -188,8 +192,6 @@ export function SlotMachine() {
   const stopSpin = () => {
     clearAutoStop();
     if (!spinningRef.current || slowingRef.current) return;
-    const selected = randomOf(eligibleUsers);
-    winnerRef.current = selected;
     setSlowing(true);
     slowingRef.current = true;
   };
