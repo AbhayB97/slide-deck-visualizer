@@ -45,11 +45,6 @@ const pendingDays = (sentDate) => {
   return Math.floor((Date.now() - sent.getTime()) / 86400000);
 };
 
-const ROULETTE_AUTH_USER = "AbhayB";
-const ROULETTE_AUTH_PASS = "120VrAdldeE";
-const ROULETTE_UNLOCK_TTL_MS = 10 * 60 * 1000;
-const ROULETTE_UNLOCK_KEY = "rouletteUnlockUntil";
-
 const clamp01 = (value) => Math.min(1, Math.max(0, value));
 
 const hexToRgb = (hex) => {
@@ -124,6 +119,7 @@ export default function SlideDeckVisualizer() {
     username: "",
     password: "",
   });
+  const [rouletteExpiresAt, setRouletteExpiresAt] = useState(null);
   const rouletteUnlockTimerRef = React.useRef(null);
 
   const handleTileKeyDown = (event, name) => {
@@ -250,6 +246,14 @@ export default function SlideDeckVisualizer() {
     try {
       setListsError(null);
       const res = await fetch("/api/current-lists");
+      if (res.status === 401) {
+        setRouletteUnlocked(false);
+        setRouletteExpiresAt(null);
+        setRouletteUsers([]);
+        setRouletteAuthError("Session expired. Please unlock to continue.");
+        setListsError(null);
+        return;
+      }
       const json = await res.json();
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || "Failed to load lists");
@@ -265,54 +269,47 @@ export default function SlideDeckVisualizer() {
   }
 
   useEffect(() => {
-    const stored =
-      typeof window !== "undefined"
-        ? window.sessionStorage.getItem(ROULETTE_UNLOCK_KEY)
-        : null;
-    if (stored) {
-      const until = Number(stored);
-      if (!Number.isNaN(until) && until > Date.now()) {
-        setRouletteUnlocked(true);
-      } else if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(ROULETTE_UNLOCK_KEY);
+    const checkAuth = async () => {
+      try {
+        const res = await fetch("/api/auth/status");
+        const data = await res.json();
+        if (data?.authenticated) {
+          setRouletteUnlocked(true);
+          setRouletteExpiresAt(data.expiresAt ?? null);
+        } else {
+          setRouletteUnlocked(false);
+          setRouletteExpiresAt(null);
+          setRouletteAuthError("");
+        }
+      } catch {
+        setRouletteUnlocked(false);
+        setRouletteExpiresAt(null);
+        setRouletteAuthError("");
       }
-    }
+    };
+    checkAuth();
   }, []);
 
   useEffect(() => {
     if (rouletteUnlocked) {
       loadLists();
-      if (typeof window !== "undefined") {
-        const until = Date.now() + ROULETTE_UNLOCK_TTL_MS;
-        window.sessionStorage.setItem(ROULETTE_UNLOCK_KEY, String(until));
-      }
     }
-  }, [rouletteUnlocked]);
+  }, [rouletteUnlocked, rouletteExpiresAt]);
 
   useEffect(() => {
-    if (!rouletteUnlocked) {
+    if (!rouletteUnlocked || !rouletteExpiresAt) {
       if (rouletteUnlockTimerRef.current) {
         clearTimeout(rouletteUnlockTimerRef.current);
         rouletteUnlockTimerRef.current = null;
       }
       return;
     }
-    const remaining = Math.max(
-      0,
-      Number(
-        typeof window !== "undefined"
-          ? window.sessionStorage.getItem(ROULETTE_UNLOCK_KEY)
-          : 0
-      ) - Date.now()
-    );
+    const remaining = Math.max(0, rouletteExpiresAt - Date.now());
     rouletteUnlockTimerRef.current = setTimeout(() => {
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(ROULETTE_UNLOCK_KEY);
-      }
       setRouletteUnlocked(false);
       setSpinResult(null);
       setSpinning(false);
-    }, remaining || ROULETTE_UNLOCK_TTL_MS);
+    }, remaining);
     return () => {
       if (rouletteUnlockTimerRef.current) {
         clearTimeout(rouletteUnlockTimerRef.current);
@@ -381,17 +378,28 @@ export default function SlideDeckVisualizer() {
     }, 1200);
   };
 
-  const unlockRoulette = (event) => {
+  const unlockRoulette = async (event) => {
     event.preventDefault();
     const username = rouletteAuthForm.username.trim();
     const password = rouletteAuthForm.password;
-    if (username === ROULETTE_AUTH_USER && password === ROULETTE_AUTH_PASS) {
+    setRouletteAuthError("");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Invalid credentials.");
+      }
       setRouletteUnlocked(true);
+      setRouletteExpiresAt(data.expiresAt ?? null);
       setRouletteAuthError("");
       setRouletteAuthForm({ username: "", password: "" });
-      return;
+    } catch (err) {
+      setRouletteAuthError(err instanceof Error ? err.message : "Invalid credentials.");
     }
-    setRouletteAuthError("Invalid credentials.");
   };
 
   /* ---------- UI States ---------- */

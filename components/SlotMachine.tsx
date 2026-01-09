@@ -15,10 +15,6 @@ const CENTER_INDEX = 3;
 const ROW_HEIGHT = 48;
 const REEL_HEIGHT = VISIBLE_ROWS * ROW_HEIGHT;
 const BASE_DELAY = 60;
-const ROULETTE_AUTH_USER = "AbhayB";
-const ROULETTE_AUTH_PASS = "120VrAdldeE";
-const ROULETTE_UNLOCK_TTL_MS = 10 * 60 * 1000;
-const ROULETTE_UNLOCK_KEY = "rouletteUnlockUntil";
 
 function randomOf(list: string[], exclude?: string) {
   if (!list.length) return "";
@@ -80,12 +76,7 @@ export function SlotMachine() {
   const [slowing, setSlowing] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
   const [celebrate, setCelebrate] = useState(false);
-  const [rouletteUnlocked, setRouletteUnlocked] = useState(false);
-  const [rouletteAuthError, setRouletteAuthError] = useState("");
-  const [rouletteAuthForm, setRouletteAuthForm] = useState({
-    username: "",
-    password: "",
-  });
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const autoStopRef = useRef<NodeJS.Timeout | null>(null);
@@ -93,7 +84,6 @@ export function SlotMachine() {
   const slowingRef = useRef(false);
   const spinningRef = useRef(false);
   const namesRef = useRef<string[]>([]);
-  const rouletteUnlockTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const drumOscRef = useRef<OscillatorNode | null>(null);
   const drumGainRef = useRef<GainNode | null>(null);
@@ -103,6 +93,13 @@ export function SlotMachine() {
       setLoading(true);
       setError(null);
       const res = await fetch("/api/current-lists");
+      if (res.status === 401) {
+        setError("Session expired. Please login to continue.");
+        setEligibleUsers([]);
+        setNames([]);
+        setWinner(null);
+        return;
+      }
       const json: ListsResponse = await res.json();
       if (!res.ok || !json.success) {
         throw new Error(json.error || "Failed to load lists");
@@ -120,31 +117,32 @@ export function SlotMachine() {
   }
 
   useEffect(() => {
-    const stored =
-      typeof window !== "undefined"
-        ? window.sessionStorage.getItem(ROULETTE_UNLOCK_KEY)
-        : null;
-    if (stored) {
-      const until = Number(stored);
-      if (!Number.isNaN(until) && until > Date.now()) {
-        setRouletteUnlocked(true);
-      } else if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(ROULETTE_UNLOCK_KEY);
+    const checkAuthStatus = async () => {
+      try {
+        const res = await fetch("/api/auth/status");
+        const data = await res.json();
+        if (data?.authenticated && typeof data.expiresAt === "number") {
+          setSessionExpiresAt(data.expiresAt);
+        } else {
+          setSessionExpiresAt(null);
+        }
+      } catch {
+        setSessionExpiresAt(null);
       }
-    }
+    };
+    checkAuthStatus();
+    loadEligible();
     return () => {
       clearTimer();
       clearAutoStop();
       stopDrumroll(true);
-      if (rouletteUnlockTimerRef.current) {
-        clearTimeout(rouletteUnlockTimerRef.current);
-        rouletteUnlockTimerRef.current = null;
-      }
     };
   }, []);
 
   useEffect(() => {
-    if (!rouletteUnlocked) {
+    if (!sessionExpiresAt) return;
+    const remaining = Math.max(0, sessionExpiresAt - Date.now());
+    const timeout = setTimeout(() => {
       setEligibleUsers([]);
       setNames([]);
       setWinner(null);
@@ -155,44 +153,10 @@ export function SlotMachine() {
       clearTimer();
       clearAutoStop();
       stopDrumroll(true);
-      return;
-    }
-    loadEligible();
-    if (typeof window !== "undefined") {
-      const until = Date.now() + ROULETTE_UNLOCK_TTL_MS;
-      window.sessionStorage.setItem(ROULETTE_UNLOCK_KEY, String(until));
-    }
-  }, [rouletteUnlocked]);
-
-  useEffect(() => {
-    if (!rouletteUnlocked) {
-      if (rouletteUnlockTimerRef.current) {
-        clearTimeout(rouletteUnlockTimerRef.current);
-        rouletteUnlockTimerRef.current = null;
-      }
-      return;
-    }
-    const remaining = Math.max(
-      0,
-      Number(
-        typeof window !== "undefined"
-          ? window.sessionStorage.getItem(ROULETTE_UNLOCK_KEY)
-          : 0
-      ) - Date.now()
-    );
-    rouletteUnlockTimerRef.current = setTimeout(() => {
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(ROULETTE_UNLOCK_KEY);
-      }
-      setRouletteUnlocked(false);
-    }, remaining || ROULETTE_UNLOCK_TTL_MS);
-    return () => {
-      if (rouletteUnlockTimerRef.current) {
-        clearTimeout(rouletteUnlockTimerRef.current);
-        rouletteUnlockTimerRef.current = null;
-      }
-    };
-  }, [rouletteUnlocked]);
+      setError("Session expired. Please login to continue.");
+    }, remaining);
+    return () => clearTimeout(timeout);
+  }, [sessionExpiresAt]);
 
   useEffect(() => {
     namesRef.current = names;
@@ -249,7 +213,7 @@ export function SlotMachine() {
   };
 
   const startSpin = () => {
-    if (!eligibleUsers.length || spinningRef.current || !rouletteUnlocked) return;
+    if (!eligibleUsers.length || spinningRef.current) return;
     setWinner(null);
     setSpinning(true);
     spinningRef.current = true;
@@ -271,19 +235,6 @@ export function SlotMachine() {
     if (!spinningRef.current || slowingRef.current) return;
     setSlowing(true);
     slowingRef.current = true;
-  };
-
-  const unlockRoulette = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const username = rouletteAuthForm.username.trim();
-    const password = rouletteAuthForm.password;
-    if (username === ROULETTE_AUTH_USER && password === ROULETTE_AUTH_PASS) {
-      setRouletteUnlocked(true);
-      setRouletteAuthError("");
-      setRouletteAuthForm({ username: "", password: "" });
-      return;
-    }
-    setRouletteAuthError("Invalid credentials.");
   };
 
   const startDrumroll = () => {
@@ -354,7 +305,12 @@ export function SlotMachine() {
 
         {error && (
           <div className="rounded-lg border border-red-500/50 bg-red-900/30 p-4 text-sm text-red-200">
-            {error}
+            {error}{" "}
+            {error.toLowerCase().includes("login") && (
+              <Link href="/auth/login" className="underline text-amber-200">
+                Go to login
+              </Link>
+            )}
           </div>
         )}
 
@@ -368,119 +324,66 @@ export function SlotMachine() {
           className="relative rounded-2xl border border-teal-500/60 shadow-[0_0_25px_rgba(34,211,238,0.35)] p-6 bg-[#0d1117]"
           style={scanlineStyle}
         >
-          {!rouletteUnlocked ? (
-            <form
-              onSubmit={unlockRoulette}
-              className="rounded-xl border border-amber-500/40 bg-amber-900/20 p-6 text-amber-200 max-w-md mx-auto"
-            >
-              <p className="text-sm font-semibold uppercase tracking-wide text-amber-300">
-                Locked
-              </p>
-              <p className="text-sm text-amber-200 mt-2">
-                Enter credentials to access the slot machine.
-              </p>
-              <div className="mt-4 grid gap-3">
-                <input
-                  type="text"
-                  value={rouletteAuthForm.username}
-                  onChange={(event) =>
-                    setRouletteAuthForm((prev) => ({
-                      ...prev,
-                      username: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-md border border-amber-400/40 bg-[#0f172a] px-3 py-2 text-sm text-gray-100"
-                  placeholder="Username"
-                  aria-label="Slot machine username"
-                />
-                <input
-                  type="password"
-                  value={rouletteAuthForm.password}
-                  onChange={(event) =>
-                    setRouletteAuthForm((prev) => ({
-                      ...prev,
-                      password: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-md border border-amber-400/40 bg-[#0f172a] px-3 py-2 text-sm text-gray-100"
-                  placeholder="Password"
-                  aria-label="Slot machine password"
-                />
-                {rouletteAuthError && (
-                  <p className="text-sm text-red-300">{rouletteAuthError}</p>
-                )}
-                <button
-                  type="submit"
-                  className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-amber-500 text-black text-sm font-semibold shadow-sm hover:bg-amber-400"
-                >
-                  Unlock Slot Machine
-                </button>
-              </div>
-            </form>
-          ) : (
-            <>
-              <div
-                className="relative mx-auto w-full max-w-md overflow-hidden rounded-xl"
-                style={{
-                  height: REEL_HEIGHT,
-                  border: "1px solid rgba(56,189,248,0.4)",
-                  boxShadow: "0 0 20px rgba(34,211,238,0.25)",
-                  backgroundColor: "#0f172a",
-                }}
-              >
-                <div className="absolute inset-0">
-                  {names.map((name, idx) => (
-                    <div
-                      key={`${idx}-${name}`}
-                      className="flex items-center justify-center text-sm font-semibold"
-                      style={{
-                        height: ROW_HEIGHT,
-                        color: idx === CENTER_INDEX ? "#fbbf24" : "#cbd5f5",
-                        textShadow:
-                          idx === CENTER_INDEX ? "0 0 14px rgba(251,191,36,0.9)" : "none",
-                      }}
-                    >
-                      {name}
-                    </div>
-                  ))}
-                </div>
+          <div
+            className="relative mx-auto w-full max-w-md overflow-hidden rounded-xl"
+            style={{
+              height: REEL_HEIGHT,
+              border: "1px solid rgba(56,189,248,0.4)",
+              boxShadow: "0 0 20px rgba(34,211,238,0.25)",
+              backgroundColor: "#0f172a",
+            }}
+          >
+            <div className="absolute inset-0">
+              {names.map((name, idx) => (
                 <div
-                  className="pointer-events-none absolute left-0 right-0"
+                  key={`${idx}-${name}`}
+                  className="flex items-center justify-center text-sm font-semibold"
                   style={{
-                    top: CENTER_INDEX * ROW_HEIGHT,
                     height: ROW_HEIGHT,
-                    borderTop: "1px solid rgba(56,189,248,0.8)",
-                    borderBottom: "1px solid rgba(56,189,248,0.8)",
-                    boxShadow: "0 0 15px rgba(56,189,248,0.35)",
-                    background:
-                      "linear-gradient(90deg, rgba(56,189,248,0.05), rgba(56,189,248,0.15), rgba(56,189,248,0.05))",
+                    color: idx === CENTER_INDEX ? "#fbbf24" : "#cbd5f5",
+                    textShadow:
+                      idx === CENTER_INDEX ? "0 0 14px rgba(251,191,36,0.9)" : "none",
                   }}
-                ></div>
-              </div>
-
-              <div className="mt-6 flex justify-center gap-3">
-                <button
-                  onClick={startSpin}
-                  disabled={!eligibleUsers.length || loading || spinning}
-                  className="inline-flex items-center px-5 py-3 rounded-md bg-teal-600 text-white text-sm font-semibold shadow-sm hover:bg-teal-500 disabled:opacity-50"
                 >
-                  {spinning ? "Spinning..." : "Spin"}
-                </button>
-              </div>
-
-              {winner && (
-                <div className="mt-4 text-center" aria-live="polite">
-                  <p className="text-sm text-gray-300">Winner</p>
-                  <p className="relative inline-flex items-center justify-center text-2xl font-bold text-amber-300 drop-shadow-[0_0_14px_rgba(251,191,36,0.85)]">
-                    <span className="absolute inset-0" aria-hidden="true">
-                      <span className="burst-layer burst-layer-1" />
-                      <span className="burst-layer burst-layer-2" />
-                    </span>
-                    {winner}
-                  </p>
+                  {name}
                 </div>
-              )}
-            </>
+              ))}
+            </div>
+            <div
+              className="pointer-events-none absolute left-0 right-0"
+              style={{
+                top: CENTER_INDEX * ROW_HEIGHT,
+                height: ROW_HEIGHT,
+                borderTop: "1px solid rgba(56,189,248,0.8)",
+                borderBottom: "1px solid rgba(56,189,248,0.8)",
+                boxShadow: "0 0 15px rgba(56,189,248,0.35)",
+                background:
+                  "linear-gradient(90deg, rgba(56,189,248,0.05), rgba(56,189,248,0.15), rgba(56,189,248,0.05))",
+              }}
+            ></div>
+          </div>
+
+          <div className="mt-6 flex justify-center gap-3">
+            <button
+              onClick={startSpin}
+              disabled={!eligibleUsers.length || loading || spinning}
+              className="inline-flex items-center px-5 py-3 rounded-md bg-teal-600 text-white text-sm font-semibold shadow-sm hover:bg-teal-500 disabled:opacity-50"
+            >
+              {spinning ? "Spinning..." : "Spin"}
+            </button>
+          </div>
+
+          {winner && (
+            <div className="mt-4 text-center" aria-live="polite">
+              <p className="text-sm text-gray-300">Winner</p>
+              <p className="relative inline-flex items-center justify-center text-2xl font-bold text-amber-300 drop-shadow-[0_0_14px_rgba(251,191,36,0.85)]">
+                <span className="absolute inset-0" aria-hidden="true">
+                  <span className="burst-layer burst-layer-1" />
+                  <span className="burst-layer burst-layer-2" />
+                </span>
+                {winner}
+              </p>
+            </div>
           )}
         </div>
       </div>
