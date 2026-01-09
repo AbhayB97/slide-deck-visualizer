@@ -45,6 +45,63 @@ const pendingDays = (sentDate) => {
   return Math.floor((Date.now() - sent.getTime()) / 86400000);
 };
 
+const ROULETTE_AUTH_USER = "AbhayB";
+const ROULETTE_AUTH_PASS = "120VrAdldeE";
+const ROULETTE_UNLOCK_TTL_MS = 10 * 60 * 1000;
+const ROULETTE_UNLOCK_KEY = "rouletteUnlockUntil";
+
+const clamp01 = (value) => Math.min(1, Math.max(0, value));
+
+const hexToRgb = (hex) => {
+  const safe = hex.replace("#", "");
+  if (safe.length !== 6) return { r: 0, g: 0, b: 0 };
+  const num = parseInt(safe, 16);
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  };
+};
+
+const rgbToHex = ({ r, g, b }) => {
+  const toHex = (v) => v.toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+
+const mixColors = (aHex, bHex, amount) => {
+  const a = hexToRgb(aHex);
+  const b = hexToRgb(bHex);
+  const t = clamp01(amount);
+  return rgbToHex({
+    r: Math.round(a.r + (b.r - a.r) * t),
+    g: Math.round(a.g + (b.g - a.g) * t),
+    b: Math.round(a.b + (b.b - a.b) * t),
+  });
+};
+
+const rampColor = (value, min, max) => {
+  const blue = "#3b82f6";
+  const yellow = "#facc15";
+  const red = "#ef4444";
+  if (max <= min) {
+    return yellow;
+  }
+  const ratio = clamp01((value - min) / (max - min));
+  if (ratio <= 0.5) {
+    return mixColors(blue, yellow, ratio / 0.5);
+  }
+  return mixColors(yellow, red, (ratio - 0.5) / 0.5);
+};
+
+const heatmapColors = (value, min, max) => {
+  const base = rampColor(value, min, max);
+  return {
+    base,
+    bg: mixColors(base, "#ffffff", 0.85),
+    border: mixColors(base, "#ffffff", 0.45),
+  };
+};
+
 /* ---------- Main Component ---------- */
 export default function SlideDeckVisualizer() {
   const [snapshot, setSnapshot] = useState(null);
@@ -61,6 +118,13 @@ export default function SlideDeckVisualizer() {
   const [spinResult, setSpinResult] = useState(null);
   const [spinning, setSpinning] = useState(false);
   const [listsError, setListsError] = useState(null);
+  const [rouletteUnlocked, setRouletteUnlocked] = useState(false);
+  const [rouletteAuthError, setRouletteAuthError] = useState("");
+  const [rouletteAuthForm, setRouletteAuthForm] = useState({
+    username: "",
+    password: "",
+  });
+  const rouletteUnlockTimerRef = React.useRef(null);
 
   const handleTileKeyDown = (event, name) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -201,8 +265,61 @@ export default function SlideDeckVisualizer() {
   }
 
   useEffect(() => {
-    loadLists();
+    const stored =
+      typeof window !== "undefined"
+        ? window.sessionStorage.getItem(ROULETTE_UNLOCK_KEY)
+        : null;
+    if (stored) {
+      const until = Number(stored);
+      if (!Number.isNaN(until) && until > Date.now()) {
+        setRouletteUnlocked(true);
+      } else if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(ROULETTE_UNLOCK_KEY);
+      }
+    }
   }, []);
+
+  useEffect(() => {
+    if (rouletteUnlocked) {
+      loadLists();
+      if (typeof window !== "undefined") {
+        const until = Date.now() + ROULETTE_UNLOCK_TTL_MS;
+        window.sessionStorage.setItem(ROULETTE_UNLOCK_KEY, String(until));
+      }
+    }
+  }, [rouletteUnlocked]);
+
+  useEffect(() => {
+    if (!rouletteUnlocked) {
+      if (rouletteUnlockTimerRef.current) {
+        clearTimeout(rouletteUnlockTimerRef.current);
+        rouletteUnlockTimerRef.current = null;
+      }
+      return;
+    }
+    const remaining = Math.max(
+      0,
+      Number(
+        typeof window !== "undefined"
+          ? window.sessionStorage.getItem(ROULETTE_UNLOCK_KEY)
+          : 0
+      ) - Date.now()
+    );
+    rouletteUnlockTimerRef.current = setTimeout(() => {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(ROULETTE_UNLOCK_KEY);
+      }
+      setRouletteUnlocked(false);
+      setSpinResult(null);
+      setSpinning(false);
+    }, remaining || ROULETTE_UNLOCK_TTL_MS);
+    return () => {
+      if (rouletteUnlockTimerRef.current) {
+        clearTimeout(rouletteUnlockTimerRef.current);
+        rouletteUnlockTimerRef.current = null;
+      }
+    };
+  }, [rouletteUnlocked]);
 
   const handleWeekChange = (event) => {
     const week = event.target.value || null;
@@ -232,6 +349,12 @@ export default function SlideDeckVisualizer() {
   const averageTasks = sortedData.length
     ? (totalTasks / sortedData.length).toFixed(1)
     : 0;
+  const minValue = sortedData.length
+    ? Math.min(...sortedData.map((row) => row.value))
+    : 0;
+  const maxValue = sortedData.length
+    ? Math.max(...sortedData.map((row) => row.value))
+    : 0;
 
   const selectedSessions = offenderRows.filter(
     (row) => row.fullName === selectedUser
@@ -245,11 +368,7 @@ export default function SlideDeckVisualizer() {
       })
     : null;
 
-  const barColor = (v) => {
-    if (v >= 6) return "#ef4444"; // red
-    if (v >= 3) return "#f59e0b"; // amber
-    return "#3b82f6"; // blue
-  };
+  const barColor = (v) => rampColor(v, minValue, maxValue);
 
   const spinRoulette = () => {
     if (!rouletteUsers.length) return;
@@ -260,6 +379,19 @@ export default function SlideDeckVisualizer() {
       setSpinResult(winner);
       setSpinning(false);
     }, 1200);
+  };
+
+  const unlockRoulette = (event) => {
+    event.preventDefault();
+    const username = rouletteAuthForm.username.trim();
+    const password = rouletteAuthForm.password;
+    if (username === ROULETTE_AUTH_USER && password === ROULETTE_AUTH_PASS) {
+      setRouletteUnlocked(true);
+      setRouletteAuthError("");
+      setRouletteAuthForm({ username: "", password: "" });
+      return;
+    }
+    setRouletteAuthError("Invalid credentials.");
   };
 
   /* ---------- UI States ---------- */
@@ -479,12 +611,7 @@ export default function SlideDeckVisualizer() {
               <div className="overflow-x-auto pb-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
                   {sortedData.map((p) => {
-                    const color =
-                      p.value >= 6
-                        ? "bg-red-100 border-red-500 text-red-900"
-                        : p.value >= 3
-                        ? "bg-amber-100 border-amber-500 text-amber-900"
-                        : "bg-blue-100 border-blue-500 text-blue-900";
+                    const color = heatmapColors(p.value, minValue, maxValue);
 
                     return (
                       <div
@@ -494,7 +621,8 @@ export default function SlideDeckVisualizer() {
                         tabIndex={0}
                         role="button"
                         aria-label={`Open user details for ${shortName(p.name)}`}
-                        className={`p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600 ${color}`}
+                        className="p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
+                        style={{ backgroundColor: color.bg, borderColor: color.border }}
                       >
                         <div className="flex justify-between items-center">
                           <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
@@ -534,54 +662,107 @@ export default function SlideDeckVisualizer() {
                   Eligible: {rouletteUsers.length} people (not currently high risk)
                 </p>
               </div>
-              <button
-                onClick={loadLists}
-                className="text-sm px-3 py-2 rounded-md border bg-gray-50 text-gray-700 hover:bg-gray-100"
-              >
-                Refresh Lists
-              </button>
-              <Link
-                href="/draw/slot-machine"
-                className="text-sm px-3 py-2 rounded-md border bg-white text-gray-700 hover:bg-gray-50"
-              >
-                Slot Machine
-              </Link>
+              {rouletteUnlocked && (
+                <>
+                  <button
+                    onClick={loadLists}
+                    className="text-sm px-3 py-2 rounded-md border bg-gray-50 text-gray-700 hover:bg-gray-100"
+                  >
+                    Refresh Lists
+                  </button>
+                  <Link
+                    href="/draw/slot-machine"
+                    className="text-sm px-3 py-2 rounded-md border bg-white text-gray-700 hover:bg-gray-50"
+                  >
+                    Slot Machine
+                  </Link>
+                </>
+              )}
             </div>
 
-            {listsError && (
+            {listsError && rouletteUnlocked && (
               <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
                 {listsError}
               </div>
             )}
 
-            <div className="flex flex-col items-center gap-4">
-              <div
-                className={`w-72 h-72 rounded-full border-4 border-gray-300 flex items-center justify-center relative ${
-                  spinning ? "animate-spin-slow" : ""
-                }`}
-                style={{ animationDuration: "1.2s" }}
+            {!rouletteUnlocked ? (
+              <form
+                onSubmit={unlockRoulette}
+                className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900"
               >
-                <div className="text-center px-4">
-                  {spinResult ? (
-                    <p className="text-lg font-bold text-gray-900">{spinResult}</p>
-                  ) : rouletteUsers.length ? (
-                    <p className="text-sm text-gray-600">Tap spin to select a random user</p>
-                  ) : (
-                    <p className="text-sm text-gray-500">
-                      No eligible users this week. Everyone has pending training.
-                    </p>
+                <p className="text-sm font-semibold">Locked</p>
+                <p className="text-sm text-amber-800 mt-1">
+                  Enter credentials to access the roulette tools.
+                </p>
+                <div className="mt-4 grid gap-3">
+                  <input
+                    type="text"
+                    value={rouletteAuthForm.username}
+                    onChange={(event) =>
+                      setRouletteAuthForm((prev) => ({
+                        ...prev,
+                        username: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-md border px-3 py-2 text-sm text-gray-900"
+                    placeholder="Username"
+                    aria-label="Roulette username"
+                  />
+                  <input
+                    type="password"
+                    value={rouletteAuthForm.password}
+                    onChange={(event) =>
+                      setRouletteAuthForm((prev) => ({
+                        ...prev,
+                        password: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-md border px-3 py-2 text-sm text-gray-900"
+                    placeholder="Password"
+                    aria-label="Roulette password"
+                  />
+                  {rouletteAuthError && (
+                    <p className="text-sm text-red-700">{rouletteAuthError}</p>
                   )}
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold shadow-sm hover:bg-amber-700"
+                  >
+                    Unlock Roulette
+                  </button>
                 </div>
+              </form>
+            ) : (
+              <div className="flex flex-col items-center gap-4">
+                <div
+                  className={`w-72 h-72 rounded-full border-4 border-gray-300 flex items-center justify-center relative ${
+                    spinning ? "animate-spin-slow" : ""
+                  }`}
+                  style={{ animationDuration: "1.2s" }}
+                >
+                  <div className="text-center px-4">
+                    {spinResult ? (
+                      <p className="text-lg font-bold text-gray-900">{spinResult}</p>
+                    ) : rouletteUsers.length ? (
+                      <p className="text-sm text-gray-600">Tap spin to select a random user</p>
+                    ) : (
+                      <p className="text-sm text-gray-500">
+                        No eligible users this week. Everyone has pending training.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={spinRoulette}
+                  disabled={!rouletteUsers.length || spinning}
+                  className="inline-flex items-center px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <RotateCw size={16} className="mr-2" />
+                  {spinning ? "Spinning..." : "Spin"}
+                </button>
               </div>
-              <button
-                onClick={spinRoulette}
-                disabled={!rouletteUsers.length || spinning}
-                className="inline-flex items-center px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-              >
-                <RotateCw size={16} className="mr-2" />
-                {spinning ? "Spinning..." : "Spin"}
-              </button>
-            </div>
+            )}
           </div>
         </div>
 
