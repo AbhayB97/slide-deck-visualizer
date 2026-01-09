@@ -5,7 +5,8 @@ import { AUTH_COOKIE_NAME, verifyAuthToken } from "@/lib/auth";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const token = cookies().get(AUTH_COOKIE_NAME)?.value;
+  const store = await cookies();
+  const token = store.get(AUTH_COOKIE_NAME)?.value;
   const payload = verifyAuthToken(token);
 
   if (!payload) {
