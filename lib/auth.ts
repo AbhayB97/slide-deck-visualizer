@@ -7,6 +7,8 @@ export const AUTH_TTL_MS = 10 * 60 * 1000;
 const AUTH_USER = process.env.ROULETTE_AUTH_USER || "";
 const AUTH_PASS_HASH = process.env.ROULETTE_AUTH_PASS_HASH || "";
 const AUTH_SECRET = process.env.ROULETTE_AUTH_SECRET || "";
+// Temporary bypass to remove the authentication lock.
+const AUTH_DISABLED = true;
 
 type TokenPayload = {
   u: string;
@@ -43,9 +45,10 @@ const verifyPassword = (password: string) => {
 };
 
 export const isAuthConfigured = () =>
-  Boolean(AUTH_USER && AUTH_PASS_HASH && AUTH_SECRET);
+  AUTH_DISABLED ? true : Boolean(AUTH_USER && AUTH_PASS_HASH && AUTH_SECRET);
 
 export const verifyCredentials = (username: string, password: string) => {
+  if (AUTH_DISABLED) return true;
   if (!isAuthConfigured()) return false;
   if (username !== AUTH_USER) return false;
   return verifyPassword(password);
@@ -62,6 +65,9 @@ export const createAuthToken = () => {
 };
 
 export const verifyAuthToken = (token: string | undefined | null) => {
+  if (AUTH_DISABLED) {
+    return { u: "anonymous", exp: Date.now() + AUTH_TTL_MS };
+  }
   if (!token || !isAuthConfigured()) return null;
   const parts = token.split(".");
   if (parts.length !== 2) return null;
