@@ -113,14 +113,6 @@ export default function SlideDeckVisualizer() {
   const [spinResult, setSpinResult] = useState(null);
   const [spinning, setSpinning] = useState(false);
   const [listsError, setListsError] = useState(null);
-  const [rouletteUnlocked, setRouletteUnlocked] = useState(false);
-  const [rouletteAuthError, setRouletteAuthError] = useState("");
-  const [rouletteAuthForm, setRouletteAuthForm] = useState({
-    username: "",
-    password: "",
-  });
-  const [rouletteExpiresAt, setRouletteExpiresAt] = useState(null);
-  const rouletteUnlockTimerRef = React.useRef(null);
 
   const handleTileKeyDown = (event, name) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -246,14 +238,6 @@ export default function SlideDeckVisualizer() {
     try {
       setListsError(null);
       const res = await fetch("/api/current-lists");
-      if (res.status === 401) {
-        setRouletteUnlocked(false);
-        setRouletteExpiresAt(null);
-        setRouletteUsers([]);
-        setRouletteAuthError("Session expired. Please unlock to continue.");
-        setListsError(null);
-        return;
-      }
       const json = await res.json();
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || "Failed to load lists");
@@ -269,54 +253,8 @@ export default function SlideDeckVisualizer() {
   }
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const res = await fetch("/api/auth/status");
-        const data = await res.json();
-        if (data?.authenticated) {
-          setRouletteUnlocked(true);
-          setRouletteExpiresAt(data.expiresAt ?? null);
-        } else {
-          setRouletteUnlocked(false);
-          setRouletteExpiresAt(null);
-          setRouletteAuthError("");
-        }
-      } catch {
-        setRouletteUnlocked(false);
-        setRouletteExpiresAt(null);
-        setRouletteAuthError("");
-      }
-    };
-    checkAuth();
+    loadLists();
   }, []);
-
-  useEffect(() => {
-    if (rouletteUnlocked) {
-      loadLists();
-    }
-  }, [rouletteUnlocked, rouletteExpiresAt]);
-
-  useEffect(() => {
-    if (!rouletteUnlocked || !rouletteExpiresAt) {
-      if (rouletteUnlockTimerRef.current) {
-        clearTimeout(rouletteUnlockTimerRef.current);
-        rouletteUnlockTimerRef.current = null;
-      }
-      return;
-    }
-    const remaining = Math.max(0, rouletteExpiresAt - Date.now());
-    rouletteUnlockTimerRef.current = setTimeout(() => {
-      setRouletteUnlocked(false);
-      setSpinResult(null);
-      setSpinning(false);
-    }, remaining);
-    return () => {
-      if (rouletteUnlockTimerRef.current) {
-        clearTimeout(rouletteUnlockTimerRef.current);
-        rouletteUnlockTimerRef.current = null;
-      }
-    };
-  }, [rouletteUnlocked]);
 
   const handleWeekChange = (event) => {
     const week = event.target.value || null;
@@ -376,30 +314,6 @@ export default function SlideDeckVisualizer() {
       setSpinResult(winner);
       setSpinning(false);
     }, 1200);
-  };
-
-  const unlockRoulette = async (event) => {
-    event.preventDefault();
-    const username = rouletteAuthForm.username.trim();
-    const password = rouletteAuthForm.password;
-    setRouletteAuthError("");
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "Invalid credentials.");
-      }
-      setRouletteUnlocked(true);
-      setRouletteExpiresAt(data.expiresAt ?? null);
-      setRouletteAuthError("");
-      setRouletteAuthForm({ username: "", password: "" });
-    } catch (err) {
-      setRouletteAuthError(err instanceof Error ? err.message : "Invalid credentials.");
-    }
   };
 
   /* ---------- UI States ---------- */
@@ -670,107 +584,55 @@ export default function SlideDeckVisualizer() {
                   Eligible: {rouletteUsers.length} people (not currently high risk)
                 </p>
               </div>
-              {rouletteUnlocked && (
-                <>
-                  <button
-                    onClick={loadLists}
-                    className="text-sm px-3 py-2 rounded-md border bg-gray-50 text-gray-700 hover:bg-gray-100"
-                  >
-                    Refresh Lists
-                  </button>
-                  <Link
-                    href="/draw/slot-machine"
-                    className="text-sm px-3 py-2 rounded-md border bg-white text-gray-700 hover:bg-gray-50"
-                  >
-                    Slot Machine
-                  </Link>
-                </>
-              )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadLists}
+                  className="text-sm px-3 py-2 rounded-md border bg-gray-50 text-gray-700 hover:bg-gray-100"
+                >
+                  Refresh Lists
+                </button>
+                <Link
+                  href="/draw/slot-machine"
+                  className="text-sm px-3 py-2 rounded-md border bg-white text-gray-700 hover:bg-gray-50"
+                >
+                  Slot Machine
+                </Link>
+              </div>
             </div>
 
-            {listsError && rouletteUnlocked && (
+            {listsError && (
               <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
                 {listsError}
               </div>
             )}
-
-            {!rouletteUnlocked ? (
-              <form
-                onSubmit={unlockRoulette}
-                className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900"
+            <div className="flex flex-col items-center gap-4">
+              <div
+                className={`w-72 h-72 rounded-full border-4 border-gray-300 flex items-center justify-center relative ${
+                  spinning ? "animate-spin-slow" : ""
+                }`}
+                style={{ animationDuration: "1.2s" }}
               >
-                <p className="text-sm font-semibold">Locked</p>
-                <p className="text-sm text-amber-800 mt-1">
-                  Enter credentials to access the roulette tools.
-                </p>
-                <div className="mt-4 grid gap-3">
-                  <input
-                    type="text"
-                    value={rouletteAuthForm.username}
-                    onChange={(event) =>
-                      setRouletteAuthForm((prev) => ({
-                        ...prev,
-                        username: event.target.value,
-                      }))
-                    }
-                    className="w-full rounded-md border px-3 py-2 text-sm text-gray-900"
-                    placeholder="Username"
-                    aria-label="Roulette username"
-                  />
-                  <input
-                    type="password"
-                    value={rouletteAuthForm.password}
-                    onChange={(event) =>
-                      setRouletteAuthForm((prev) => ({
-                        ...prev,
-                        password: event.target.value,
-                      }))
-                    }
-                    className="w-full rounded-md border px-3 py-2 text-sm text-gray-900"
-                    placeholder="Password"
-                    aria-label="Roulette password"
-                  />
-                  {rouletteAuthError && (
-                    <p className="text-sm text-red-700">{rouletteAuthError}</p>
+                <div className="text-center px-4">
+                  {spinResult ? (
+                    <p className="text-lg font-bold text-gray-900">{spinResult}</p>
+                  ) : rouletteUsers.length ? (
+                    <p className="text-sm text-gray-600">Tap spin to select a random user</p>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      No eligible users this week. Everyone has pending training.
+                    </p>
                   )}
-                  <button
-                    type="submit"
-                    className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold shadow-sm hover:bg-amber-700"
-                  >
-                    Unlock Roulette
-                  </button>
                 </div>
-              </form>
-            ) : (
-              <div className="flex flex-col items-center gap-4">
-                <div
-                  className={`w-72 h-72 rounded-full border-4 border-gray-300 flex items-center justify-center relative ${
-                    spinning ? "animate-spin-slow" : ""
-                  }`}
-                  style={{ animationDuration: "1.2s" }}
-                >
-                  <div className="text-center px-4">
-                    {spinResult ? (
-                      <p className="text-lg font-bold text-gray-900">{spinResult}</p>
-                    ) : rouletteUsers.length ? (
-                      <p className="text-sm text-gray-600">Tap spin to select a random user</p>
-                    ) : (
-                      <p className="text-sm text-gray-500">
-                        No eligible users this week. Everyone has pending training.
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={spinRoulette}
-                  disabled={!rouletteUsers.length || spinning}
-                  className="inline-flex items-center px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  <RotateCw size={16} className="mr-2" />
-                  {spinning ? "Spinning..." : "Spin"}
-                </button>
               </div>
-            )}
+              <button
+                onClick={spinRoulette}
+                disabled={!rouletteUsers.length || spinning}
+                className="inline-flex items-center px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <RotateCw size={16} className="mr-2" />
+                {spinning ? "Spinning..." : "Spin"}
+              </button>
+            </div>
           </div>
         </div>
 

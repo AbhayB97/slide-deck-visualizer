@@ -76,7 +76,6 @@ export function SlotMachine() {
   const [slowing, setSlowing] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
   const [celebrate, setCelebrate] = useState(false);
-  const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const autoStopRef = useRef<NodeJS.Timeout | null>(null);
@@ -93,13 +92,6 @@ export function SlotMachine() {
       setLoading(true);
       setError(null);
       const res = await fetch("/api/current-lists");
-      if (res.status === 401) {
-        setError("Session expired. Please login to continue.");
-        setEligibleUsers([]);
-        setNames([]);
-        setWinner(null);
-        return;
-      }
       const json: ListsResponse = await res.json();
       if (!res.ok || !json.success) {
         throw new Error(json.error || "Failed to load lists");
@@ -117,20 +109,6 @@ export function SlotMachine() {
   }
 
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      try {
-        const res = await fetch("/api/auth/status");
-        const data = await res.json();
-        if (data?.authenticated && typeof data.expiresAt === "number") {
-          setSessionExpiresAt(data.expiresAt);
-        } else {
-          setSessionExpiresAt(null);
-        }
-      } catch {
-        setSessionExpiresAt(null);
-      }
-    };
-    checkAuthStatus();
     loadEligible();
     return () => {
       clearTimer();
@@ -138,25 +116,6 @@ export function SlotMachine() {
       stopDrumroll(true);
     };
   }, []);
-
-  useEffect(() => {
-    if (!sessionExpiresAt) return;
-    const remaining = Math.max(0, sessionExpiresAt - Date.now());
-    const timeout = setTimeout(() => {
-      setEligibleUsers([]);
-      setNames([]);
-      setWinner(null);
-      setSpinning(false);
-      spinningRef.current = false;
-      setSlowing(false);
-      slowingRef.current = false;
-      clearTimer();
-      clearAutoStop();
-      stopDrumroll(true);
-      setError("Session expired. Please login to continue.");
-    }, remaining);
-    return () => clearTimeout(timeout);
-  }, [sessionExpiresAt]);
 
   useEffect(() => {
     namesRef.current = names;
@@ -305,12 +264,7 @@ export function SlotMachine() {
 
         {error && (
           <div className="rounded-lg border border-red-500/50 bg-red-900/30 p-4 text-sm text-red-200">
-            {error}{" "}
-            {error.toLowerCase().includes("login") && (
-              <Link href="/auth/login" className="underline text-amber-200">
-                Go to login
-              </Link>
-            )}
+            {error}
           </div>
         )}
 
