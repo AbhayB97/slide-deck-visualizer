@@ -113,6 +113,7 @@ export default function SlideDeckVisualizer() {
   const [spinResult, setSpinResult] = useState(null);
   const [spinning, setSpinning] = useState(false);
   const [listsError, setListsError] = useState(null);
+  const [masterCount, setMasterCount] = useState(0);
 
   const handleTileKeyDown = (event, name) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -246,9 +247,11 @@ export default function SlideDeckVisualizer() {
         ? json.rouletteUsers.filter(Boolean)
         : [];
       setRouletteUsers(users);
+      setMasterCount(Number.isFinite(json?.masterCount) ? json.masterCount : 0);
     } catch (err) {
       setListsError(err.message);
       setRouletteUsers([]);
+      setMasterCount(0);
     }
   }
 
@@ -408,6 +411,8 @@ export default function SlideDeckVisualizer() {
                 {uploadedLabel && <span>Uploaded: {uploadedLabel}</span>}
                 <span className="mx-1 text-gray-300">|</span>
                 <span>Total Items: {totalTasks}</span>
+                <span className="mx-1 text-gray-300">|</span>
+                <span>Total People: {masterCount}</span>
                 {snapshot?.weekId && (
                   <>
                     <span className="mx-1 text-gray-300">|</span>

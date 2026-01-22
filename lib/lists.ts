@@ -31,6 +31,7 @@ export async function fetchHighRiskUsers(): Promise<string[]> {
 export async function fetchCurrentLists(): Promise<{
   highRiskUsers: string[];
   rouletteUsers: string[];
+  masterCount: number;
 }> {
   const [master, highRisk] = await Promise.all([fetchMasterList(), fetchHighRiskUsers()]);
   const riskSet = new Set(highRisk.map((n) => n.trim()).filter(Boolean));
@@ -39,5 +40,5 @@ export async function fetchCurrentLists(): Promise<{
     .filter(Boolean)
     .filter((n) => !riskSet.has(n));
 
-  return { highRiskUsers: highRisk, rouletteUsers: roulette };
+  return { highRiskUsers: highRisk, rouletteUsers: roulette, masterCount: master.length };
 }
