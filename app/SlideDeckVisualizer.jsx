@@ -96,6 +96,9 @@ export default function SlideDeckVisualizer() {
   const [statusNotice, setStatusNotice] = useState(null); // friendly states for missing/empty snapshots
   const [history, setHistory] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState(null);
+  const [prevWeekId, setPrevWeekId] = useState(null);
+  const [prevCounts, setPrevCounts] = useState({});
+  const [loadingPrevCounts, setLoadingPrevCounts] = useState(false);
 
   const [viewMode, setViewMode] = useState("grid");
   const [selectedUser, setSelectedUser] = useState(null);
@@ -224,6 +227,43 @@ export default function SlideDeckVisualizer() {
   useEffect(() => {
     loadHistory();
   }, []);
+
+  async function loadPrevCounts(weekId) {
+    try {
+      setLoadingPrevCounts(true);
+      setPrevCounts({});
+      if (!weekId) return;
+      const res = await fetch(`/api/snapshot?week=${encodeURIComponent(weekId)}`);
+      if (!res.ok) return;
+      const json = await res.json();
+      if (!json?.success || !json?.snapshot) return;
+      const prevSnap = json.snapshot;
+      const prevRows = Array.isArray(prevSnap?.parsedRows) ? prevSnap.parsedRows : [];
+      const prevOffenders = prevRows.filter(isOffender);
+      const counts = {};
+      for (const r of prevOffenders) {
+        const name = r.fullName || "Unknown";
+        counts[name] = (counts[name] || 0) + 1;
+      }
+      setPrevCounts(counts);
+    } catch {
+      setPrevCounts({});
+    } finally {
+      setLoadingPrevCounts(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedWeek || !Array.isArray(history) || history.length === 0) {
+      setPrevWeekId(null);
+      setPrevCounts({});
+      return;
+    }
+    const idx = history.findIndex((w) => w?.weekId === selectedWeek);
+    const prev = idx >= 0 ? history[idx + 1]?.weekId ?? null : null;
+    setPrevWeekId(prev);
+    loadPrevCounts(prev);
+  }, [selectedWeek, history]);
 
   async function loadLists() {
     try {
@@ -502,6 +542,15 @@ export default function SlideDeckVisualizer() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
                   {sortedData.map((p) => {
                     const color = heatmapColors(p.value, minValue, maxValue);
+                    const prevValue = prevCounts?.[p.name] || 0;
+                    const delta = p.value - prevValue;
+                    const deltaLabel = delta > 0 ? `+${delta}` : `${delta}`;
+                    const deltaClass =
+                      delta > 0
+                        ? "bg-red-100 text-red-800 border-red-200"
+                        : delta < 0
+                          ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                          : "bg-gray-100 text-gray-700 border-gray-200";
 
                     return (
                       <div
@@ -516,12 +565,28 @@ export default function SlideDeckVisualizer() {
                       >
                         <div className="flex justify-between items-center">
                           <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
-                          <span className="font-bold text-xl text-gray-900">{p.value}</span>
+                          <div className="flex items-center gap-2">
+                            {prevWeekId && !loadingPrevCounts && (
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${deltaClass}`}
+                                title={`Change vs ${prevWeekId}: ${deltaLabel}`}
+                                aria-label={`Change vs ${prevWeekId}: ${deltaLabel}`}
+                              >
+                                {deltaLabel}
+                              </span>
+                            )}
+                            <span className="font-bold text-xl text-gray-900">{p.value}</span>
+                          </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
+                {prevWeekId && loadingPrevCounts && (
+                  <div className="mt-3 text-xs text-gray-500">
+                    Loading week-over-week changes...
+                  </div>
+                )}
               </div>
             )}
 
