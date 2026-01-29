@@ -7,6 +7,15 @@ function normalizeEmail(value: unknown): string {
   return value.trim().toLowerCase();
 }
 
+function normalizeNameKey(name: unknown): string {
+  if (typeof name !== 'string') return '';
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,]/g, '')
+    .toLowerCase();
+}
+
 async function readJsonArray(path: string): Promise<string[]> {
   try {
     const metadata = await head(path, { token: process.env.BLOB_READ_WRITE_TOKEN });
@@ -84,7 +93,24 @@ export async function fetchCurrentLists(): Promise<{
 }> {
   const [masterUsers, highRiskRaw] = await Promise.all([fetchMasterUsers(), fetchHighRiskUsers()]);
 
-  const riskEmailSet = new Set(highRiskRaw.map(normalizeEmail).filter(Boolean));
+  const cleanedHighRisk = highRiskRaw.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean);
+  const hasAnyEmail = cleanedHighRisk.some((x) => normalizeEmail(x).includes('@'));
+
+  if (!hasAnyEmail) {
+    // Back-compat mode: old snapshots only contained names (offenderList). Subtract by name keys.
+    const riskNameKeySet = new Set(cleanedHighRisk.map(normalizeNameKey).filter(Boolean));
+    const roulette = masterUsers
+      .filter((u) => !riskNameKeySet.has(normalizeNameKey(u.name)))
+      .map((u) => u.name);
+
+    return {
+      highRiskUsers: cleanedHighRisk,
+      rouletteUsers: roulette,
+      masterCount: masterUsers.length,
+    };
+  }
+
+  const riskEmailSet = new Set(cleanedHighRisk.map(normalizeEmail).filter(Boolean));
 
   const roulette = masterUsers
     .filter((u) => !riskEmailSet.has(u.email))
