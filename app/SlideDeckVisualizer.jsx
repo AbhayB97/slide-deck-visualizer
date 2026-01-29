@@ -3,17 +3,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
-import {
   LayoutGrid,
-  BarChart2,
   List,
   AlertCircle,
   Loader2,
@@ -107,7 +97,7 @@ export default function SlideDeckVisualizer() {
   const [history, setHistory] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState(null);
 
-  const [viewMode, setViewMode] = useState("chart");
+  const [viewMode, setViewMode] = useState("grid");
   const [selectedUser, setSelectedUser] = useState(null);
   const [rouletteUsers, setRouletteUsers] = useState([]);
   const [spinResult, setSpinResult] = useState(null);
@@ -482,18 +472,6 @@ export default function SlideDeckVisualizer() {
             </div>
             <div className="flex gap-3 flex-wrap items-center">
               <button
-                onClick={() => setViewMode("chart")}
-                aria-pressed={viewMode === "chart"}
-                aria-label="Show chart view"
-                className={`px-3 py-2 rounded-lg ${
-                  viewMode === "chart"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                <BarChart2 size={16} /> Chart
-              </button>
-              <button
                 onClick={() => setViewMode("grid")}
                 aria-pressed={viewMode === "grid"}
                 aria-label="Show heatmap view"
@@ -518,21 +496,6 @@ export default function SlideDeckVisualizer() {
                 <List size={16} /> Summary
               </button>
             </div>
-
-            {viewMode === "chart" && (
-              <ResponsiveContainer width="100%" height={500}>
-                <BarChart data={sortedData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" width={160} />
-                  <Bar dataKey="value">
-                    {sortedData.map((row, i) => (
-                      <Cell key={i} fill={barColor(row.value)} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
 
             {viewMode === "grid" && (
               <div className="overflow-x-auto pb-2">
