@@ -2,6 +2,8 @@ import { put } from '@vercel/blob';
 import { parse } from 'csv-parse/sync';
 import { getCsv, SNAPSHOT_PATH } from '@/lib/storage';
 import { buildSnapshotPath, getIsoWeekId, upsertHistoryEntry } from '@/lib/history';
+import { findPrevWeekId, saveWeekMetrics, type WeekMetrics } from '@/lib/metrics';
+import { fetchSnapshotByWeek } from '@/lib/snapshots';
 
 export type ParsedRow = {
   email: string;
@@ -138,6 +140,18 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
     new Set(parsedRows.map((row) => row.email).filter(Boolean))
   );
 
+  const currentCountsByEmail = parsedRows.reduce<Record<string, { email: string; name: string; count: number }>>(
+    (acc, row) => {
+      const email = row.email;
+      if (!email) return acc;
+      acc[email] = acc[email] ?? { email, name: row.fullName ?? '', count: 0 };
+      acc[email].count += 1;
+      if (!acc[email].name && row.fullName) acc[email].name = row.fullName;
+      return acc;
+    },
+    {}
+  );
+
   const notStarted = parsedRows.filter(
     (row) => row.status.toLowerCase() === 'not started'
   ).length;
@@ -191,6 +205,37 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
     offenderCount: payload.offenderCount,
     totalIncomplete: payload.incompleteSessions.total,
   });
+
+  // Generate/overwrite per-week metrics (counts + deltas) for reporting.
+  const prevWeekId = await findPrevWeekId(weekId);
+  let prevCountsByEmail: Record<string, number> = {};
+  if (prevWeekId) {
+    const prevSnapshot = await fetchSnapshotByWeek(prevWeekId);
+    const prevRows = Array.isArray(prevSnapshot?.parsedRows) ? prevSnapshot.parsedRows : [];
+    prevCountsByEmail = prevRows.reduce<Record<string, number>>((acc, row: any) => {
+      const email = typeof row?.email === 'string' ? row.email.trim().toLowerCase() : '';
+      if (!email) return acc;
+      acc[email] = (acc[email] ?? 0) + 1;
+      return acc;
+    }, {});
+  }
+
+  const metrics: WeekMetrics = {
+    weekId,
+    prevWeekId,
+    generatedAt: new Date().toISOString(),
+    users: Object.values(currentCountsByEmail)
+      .map((u) => ({
+        weekId,
+        prevWeekId,
+        email: u.email,
+        name: u.name,
+        incompleteCount: u.count,
+        deltaFromPrevWeek: u.count - (prevCountsByEmail[u.email] ?? 0),
+      }))
+      .sort((a, b) => b.incompleteCount - a.incompleteCount || a.name.localeCompare(b.name)),
+  };
+  await saveWeekMetrics(metrics);
 
   return {
     ...payload,

@@ -96,9 +96,9 @@ export default function SlideDeckVisualizer() {
   const [statusNotice, setStatusNotice] = useState(null); // friendly states for missing/empty snapshots
   const [history, setHistory] = useState([]);
   const [selectedWeek, setSelectedWeek] = useState(null);
-  const [prevWeekId, setPrevWeekId] = useState(null);
-  const [prevCounts, setPrevCounts] = useState({});
-  const [loadingPrevCounts, setLoadingPrevCounts] = useState(false);
+  const [metricsPrevWeekId, setMetricsPrevWeekId] = useState(null);
+  const [deltaByName, setDeltaByName] = useState({});
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
 
   const [viewMode, setViewMode] = useState("grid");
   const [selectedUser, setSelectedUser] = useState(null);
@@ -233,47 +233,49 @@ export default function SlideDeckVisualizer() {
     safe.sort((a, b) => {
       const aTime = new Date(a?.uploadedAt || a?.uploaded || 0).getTime();
       const bTime = new Date(b?.uploadedAt || b?.uploaded || 0).getTime();
-      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+      const aSafe = Number.isFinite(aTime) ? aTime : 0;
+      const bSafe = Number.isFinite(bTime) ? bTime : 0;
+      if (aSafe !== bSafe) return bSafe - aSafe;
+
+      const aWeek = typeof a?.weekId === "string" ? a.weekId : "";
+      const bWeek = typeof b?.weekId === "string" ? b.weekId : "";
+      return bWeek.localeCompare(aWeek);
     });
     return safe;
   }, [history]);
 
-  async function loadPrevCounts(weekId) {
+  async function loadWeekMetrics(weekId) {
     try {
-      setLoadingPrevCounts(true);
-      setPrevCounts({});
+      setLoadingMetrics(true);
+      setDeltaByName({});
+      setMetricsPrevWeekId(null);
       if (!weekId) return;
-      const res = await fetch(`/api/snapshot?week=${encodeURIComponent(weekId)}`);
+      const res = await fetch(`/api/metrics?week=${encodeURIComponent(weekId)}`);
       if (!res.ok) return;
-      const json = await res.json();
-      if (!json?.success || !json?.snapshot) return;
-      const prevSnap = json.snapshot;
-      const prevRows = Array.isArray(prevSnap?.parsedRows) ? prevSnap.parsedRows : [];
-      const prevOffenders = prevRows.filter(isOffender);
-      const counts = {};
-      for (const r of prevOffenders) {
-        const name = r.fullName || "Unknown";
-        counts[name] = (counts[name] || 0) + 1;
+      const json = await res.json().catch(() => ({}));
+      const metrics = json?.metrics;
+      if (!json?.success || !metrics || !Array.isArray(metrics?.users)) return;
+
+      setMetricsPrevWeekId(metrics?.prevWeekId ?? null);
+      const map = {};
+      for (const u of metrics.users) {
+        const name = typeof u?.name === "string" ? u.name.trim() : "";
+        const delta = Number.isFinite(u?.deltaFromPrevWeek) ? u.deltaFromPrevWeek : 0;
+        if (!name) continue;
+        map[name] = delta;
       }
-      setPrevCounts(counts);
+      setDeltaByName(map);
     } catch {
-      setPrevCounts({});
+      setDeltaByName({});
+      setMetricsPrevWeekId(null);
     } finally {
-      setLoadingPrevCounts(false);
+      setLoadingMetrics(false);
     }
   }
 
   useEffect(() => {
-    if (!selectedWeek || !Array.isArray(orderedWeeks) || orderedWeeks.length === 0) {
-      setPrevWeekId(null);
-      setPrevCounts({});
-      return;
-    }
-    const idx = orderedWeeks.findIndex((w) => w?.weekId === selectedWeek);
-    const prev = idx >= 0 ? orderedWeeks[idx + 1]?.weekId ?? null : null;
-    setPrevWeekId(prev);
-    loadPrevCounts(prev);
-  }, [selectedWeek, orderedWeeks]);
+    loadWeekMetrics(selectedWeek);
+  }, [selectedWeek]);
 
   async function loadLists() {
     try {
@@ -552,9 +554,9 @@ export default function SlideDeckVisualizer() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
                   {sortedData.map((p) => {
                     const color = heatmapColors(p.value, minValue, maxValue);
-                    const prevValue = prevCounts?.[p.name] || 0;
-                    const delta = p.value - prevValue;
-                    const deltaLabel = delta > 0 ? `+${delta}` : `${delta}`;
+                    const delta = deltaByName?.[p.name] ?? 0;
+                    const deltaLabel =
+                      delta > 0 ? `▲ ${delta}` : delta < 0 ? `▼ ${Math.abs(delta)}` : "0";
                     const deltaClass =
                       delta > 0
                         ? "bg-red-100 text-red-800 border-red-200"
@@ -576,11 +578,11 @@ export default function SlideDeckVisualizer() {
                         <div className="flex justify-between items-center">
                           <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
                           <div className="flex items-center gap-2">
-                            {prevWeekId && !loadingPrevCounts && (
+                            {metricsPrevWeekId && !loadingMetrics && (
                               <span
                                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${deltaClass}`}
-                                title={`Change vs ${prevWeekId}: ${deltaLabel}`}
-                                aria-label={`Change vs ${prevWeekId}: ${deltaLabel}`}
+                                title={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
+                                aria-label={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
                               >
                                 {deltaLabel}
                               </span>
@@ -592,7 +594,7 @@ export default function SlideDeckVisualizer() {
                     );
                   })}
                 </div>
-                {prevWeekId && loadingPrevCounts && (
+                {loadingMetrics && (
                   <div className="mt-3 text-xs text-gray-500">
                     Loading week-over-week changes...
                   </div>
