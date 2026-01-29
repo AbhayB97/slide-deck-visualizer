@@ -228,6 +228,16 @@ export default function SlideDeckVisualizer() {
     loadHistory();
   }, []);
 
+  const orderedWeeks = useMemo(() => {
+    const safe = Array.isArray(history) ? [...history] : [];
+    safe.sort((a, b) => {
+      const aTime = new Date(a?.uploadedAt || a?.uploaded || 0).getTime();
+      const bTime = new Date(b?.uploadedAt || b?.uploaded || 0).getTime();
+      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+    });
+    return safe;
+  }, [history]);
+
   async function loadPrevCounts(weekId) {
     try {
       setLoadingPrevCounts(true);
@@ -254,16 +264,16 @@ export default function SlideDeckVisualizer() {
   }
 
   useEffect(() => {
-    if (!selectedWeek || !Array.isArray(history) || history.length === 0) {
+    if (!selectedWeek || !Array.isArray(orderedWeeks) || orderedWeeks.length === 0) {
       setPrevWeekId(null);
       setPrevCounts({});
       return;
     }
-    const idx = history.findIndex((w) => w?.weekId === selectedWeek);
-    const prev = idx >= 0 ? history[idx + 1]?.weekId ?? null : null;
+    const idx = orderedWeeks.findIndex((w) => w?.weekId === selectedWeek);
+    const prev = idx >= 0 ? orderedWeeks[idx + 1]?.weekId ?? null : null;
     setPrevWeekId(prev);
     loadPrevCounts(prev);
-  }, [selectedWeek, history]);
+  }, [selectedWeek, orderedWeeks]);
 
   async function loadLists() {
     try {
@@ -468,7 +478,7 @@ export default function SlideDeckVisualizer() {
                   aria-label="Select week to view snapshot"
                 >
                   {history.length === 0 && <option value="">Latest</option>}
-                  {history.map((w) => (
+                  {orderedWeeks.map((w) => (
                     <option key={w.weekId} value={w.weekId}>
                       {w.weekId} ({w.totalIncomplete ?? w.offenderCount ?? 0} incomplete)
                     </option>
