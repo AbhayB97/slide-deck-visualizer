@@ -3,6 +3,15 @@ import { MASTER_PATH } from '@/lib/processMaster';
 import { SNAPSHOT_PATH } from '@/lib/storage';
 import { fetchLatestSnapshot } from '@/lib/snapshots';
 
+function normalizeNameKey(name: unknown): string {
+  if (typeof name !== 'string') return '';
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,]/g, '')
+    .toLowerCase();
+}
+
 async function readJsonArray(path: string): Promise<string[]> {
   try {
     const metadata = await head(path, { token: process.env.BLOB_READ_WRITE_TOKEN });
@@ -34,11 +43,11 @@ export async function fetchCurrentLists(): Promise<{
   masterCount: number;
 }> {
   const [master, highRisk] = await Promise.all([fetchMasterList(), fetchHighRiskUsers()]);
-  const riskSet = new Set(highRisk.map((n) => n.trim()).filter(Boolean));
+  const riskKeySet = new Set(highRisk.map(normalizeNameKey).filter(Boolean));
   const roulette = master
     .map((n) => (typeof n === 'string' ? n.trim() : ''))
     .filter(Boolean)
-    .filter((n) => !riskSet.has(n));
+    .filter((n) => !riskKeySet.has(normalizeNameKey(n)));
 
   return { highRiskUsers: highRisk, rouletteUsers: roulette, masterCount: master.length };
 }
