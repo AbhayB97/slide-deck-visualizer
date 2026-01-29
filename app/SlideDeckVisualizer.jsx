@@ -23,6 +23,15 @@ const shortName = (fullName) => {
   return `${first} ${lastInitial}`.trim();
 };
 
+const normalizeNameKey = (fullName) => {
+  const safeName = typeof fullName === "string" ? fullName : "";
+  return safeName
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.,]/g, "")
+    .toLowerCase();
+};
+
 const isOffender = (row) => {
   if (!row?.status) return false;
   const s = row.status.toLowerCase();
@@ -244,6 +253,17 @@ export default function SlideDeckVisualizer() {
     return safe;
   }, [history]);
 
+  const getPrevWeekId = (weekId) => {
+    if (!weekId || !Array.isArray(orderedWeeks) || orderedWeeks.length === 0) return null;
+    const idx = orderedWeeks.findIndex((w) => w?.weekId === weekId);
+    if (idx < 0) return null;
+    for (let i = idx + 1; i < orderedWeeks.length; i += 1) {
+      const candidate = orderedWeeks[i]?.weekId ?? null;
+      if (candidate && candidate !== weekId) return candidate;
+    }
+    return null;
+  };
+
   async function loadWeekMetrics(weekId) {
     try {
       setLoadingMetrics(true);
@@ -251,7 +271,44 @@ export default function SlideDeckVisualizer() {
       setMetricsPrevWeekId(null);
       if (!weekId) return;
       const res = await fetch(`/api/metrics?week=${encodeURIComponent(weekId)}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        // Fallback: compute deltas on the fly if metrics don't exist yet for this week.
+        const prevWeek = getPrevWeekId(weekId);
+        setMetricsPrevWeekId(prevWeek);
+        if (!prevWeek) return;
+
+        const prevRes = await fetch(
+          `/api/snapshot?week=${encodeURIComponent(prevWeek)}`
+        );
+        if (!prevRes.ok) return;
+        const prevJson = await prevRes.json().catch(() => ({}));
+        if (!prevJson?.success || !prevJson?.snapshot) return;
+        const prevRows = Array.isArray(prevJson.snapshot?.parsedRows)
+          ? prevJson.snapshot.parsedRows
+          : [];
+        const prevOffenders = prevRows.filter(isOffender);
+        const prevCounts = {};
+        for (const r of prevOffenders) {
+          const key = normalizeNameKey(r.fullName);
+          if (!key) continue;
+          prevCounts[key] = (prevCounts[key] || 0) + 1;
+        }
+
+        const currentCounts = {};
+        const currentOffenders = offenderRows;
+        for (const r of currentOffenders) {
+          const key = normalizeNameKey(r.fullName);
+          if (!key) continue;
+          currentCounts[key] = (currentCounts[key] || 0) + 1;
+        }
+
+        const deltaMap = {};
+        for (const [key, count] of Object.entries(currentCounts)) {
+          deltaMap[key] = (count || 0) - (prevCounts[key] || 0);
+        }
+        setDeltaByName(deltaMap);
+        return;
+      }
       const json = await res.json().catch(() => ({}));
       const metrics = json?.metrics;
       if (!json?.success || !metrics || !Array.isArray(metrics?.users)) return;
@@ -261,8 +318,9 @@ export default function SlideDeckVisualizer() {
       for (const u of metrics.users) {
         const name = typeof u?.name === "string" ? u.name.trim() : "";
         const delta = Number.isFinite(u?.deltaFromPrevWeek) ? u.deltaFromPrevWeek : 0;
-        if (!name) continue;
-        map[name] = delta;
+        const key = normalizeNameKey(name);
+        if (!key) continue;
+        map[key] = delta;
       }
       setDeltaByName(map);
     } catch {
@@ -275,7 +333,7 @@ export default function SlideDeckVisualizer() {
 
   useEffect(() => {
     loadWeekMetrics(selectedWeek);
-  }, [selectedWeek]);
+  }, [selectedWeek, orderedWeeks, snapshot?.snapshotId]);
 
   async function loadLists() {
     try {
@@ -554,7 +612,7 @@ export default function SlideDeckVisualizer() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
                   {sortedData.map((p) => {
                     const color = heatmapColors(p.value, minValue, maxValue);
-                    const delta = deltaByName?.[p.name] ?? 0;
+                    const delta = deltaByName?.[normalizeNameKey(p.name)] ?? 0;
                     const deltaLabel =
                       delta > 0 ? `▲ ${delta}` : delta < 0 ? `▼ ${Math.abs(delta)}` : "0";
                     const deltaClass =
