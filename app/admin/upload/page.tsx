@@ -35,6 +35,7 @@ export default function AdminUploadPage() {
   const [mapping, setMapping] = useState({
     firstName: "",
     lastName: "",
+    email: "",
     status: "",
     title: "",
     sentDate: "",
@@ -52,6 +53,7 @@ export default function AdminUploadPage() {
     setMapping({
       firstName: "",
       lastName: "",
+      email: "",
       status: "",
       title: "",
       sentDate: "",
@@ -201,6 +203,7 @@ export default function AdminUploadPage() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {([
+                    { key: "email", label: "User Email Address" },
                     { key: "firstName", label: "First Name" },
                     { key: "lastName", label: "Last Name" },
                     { key: "status", label: "Status" },

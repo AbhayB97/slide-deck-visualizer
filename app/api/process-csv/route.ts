@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
     if (
       !mapping ||
       typeof mapping !== 'object' ||
+      !mapping.email ||
       !mapping.firstName ||
       !mapping.lastName ||
       !mapping.status ||

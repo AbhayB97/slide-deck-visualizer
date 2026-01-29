@@ -13,9 +13,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'fileUrl is required' }, { status: 400 });
     }
 
-    if (!mapping?.firstName || !mapping?.lastName) {
+    if (!mapping?.email) {
       return NextResponse.json(
-        { success: false, error: 'mapping with firstName and lastName is required' },
+        { success: false, error: 'mapping with email is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!mapping?.fullName && !(mapping?.firstName && mapping?.lastName)) {
+      return NextResponse.json(
+        { success: false, error: 'mapping for fullName or firstName+lastName is required' },
         { status: 400 }
       );
     }

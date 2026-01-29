@@ -4,6 +4,7 @@ import { getCsv, SNAPSHOT_PATH } from '@/lib/storage';
 import { buildSnapshotPath, getIsoWeekId, upsertHistoryEntry } from '@/lib/history';
 
 export type ParsedRow = {
+  email: string;
   fullName: string;
   firstName: string;
   lastName: string;
@@ -19,6 +20,7 @@ export type Snapshot = {
   weekId: string;
   offenderCount: number;
   offenderList: string[];
+  highRiskEmails: string[];
   parsedRows: ParsedRow[];
   incompleteSessions: {
     notStarted: number;
@@ -28,6 +30,7 @@ export type Snapshot = {
 };
 
 export type FieldMapping = {
+  email: string;
   firstName: string;
   lastName: string;
   status: string;
@@ -39,6 +42,10 @@ const INCOMPLETE_STATUSES = ['not started', 'in progress'];
 
 function normalize(value: string | undefined | null) {
   return (value ?? '').trim();
+}
+
+function normalizeEmail(value: string | undefined | null) {
+  return normalize(value).toLowerCase();
 }
 
 function detectDelimiter(headerLine: string) {
@@ -79,10 +86,12 @@ function isIncomplete(status: string) {
 function buildParsedRows(rows: Record<string, string>[], mapping: FieldMapping): ParsedRow[] {
   return rows
     .map((row) => {
+      const email = normalizeEmail(row[mapping.email]);
       const firstName = normalize(row[mapping.firstName]);
       const lastName = normalize(row[mapping.lastName]);
       const status = normalize(row[mapping.status]);
       if (!firstName && !lastName) return null;
+      if (!email) return null;
       if (!status) return null;
 
       const fullName = `${firstName} ${lastName}`.trim();
@@ -90,6 +99,7 @@ function buildParsedRows(rows: Record<string, string>[], mapping: FieldMapping):
       const title = normalize(row[mapping.title]);
 
       return {
+        email,
         fullName,
         firstName,
         lastName,
@@ -106,7 +116,7 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
   const csvText = await getCsv(fileUrl);
   const { rows, headers } = parseCsv(csvText);
 
-  const required = ['firstName', 'lastName', 'status', 'title', 'sentDate'] as const;
+  const required = ['email', 'firstName', 'lastName', 'status', 'title', 'sentDate'] as const;
   for (const key of required) {
     const header = mapping[key];
     if (!header) {
@@ -124,6 +134,9 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
   const offenderList = Array.from(
     new Set(parsedRows.map((row) => row.fullName).filter(Boolean))
   );
+  const highRiskEmails = Array.from(
+    new Set(parsedRows.map((row) => row.email).filter(Boolean))
+  );
 
   const notStarted = parsedRows.filter(
     (row) => row.status.toLowerCase() === 'not started'
@@ -139,6 +152,7 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
     weekId,
     offenderCount: offenderList.length,
     offenderList,
+    highRiskEmails,
     parsedRows,
     incompleteSessions: {
       notStarted,

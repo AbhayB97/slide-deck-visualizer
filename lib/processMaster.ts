@@ -6,12 +6,17 @@ export type MasterMapping = {
   firstName?: string;
   lastName?: string;
   fullName?: string;
+  email: string;
 };
 
 export const MASTER_PATH = 'master/latest.json';
 
 function normalize(value: string | undefined | null) {
   return (value ?? '').trim();
+}
+
+function normalizeEmail(value: string | undefined | null) {
+  return normalize(value).toLowerCase();
 }
 
 function detectDelimiter(headerLine: string) {
@@ -49,6 +54,13 @@ export async function processMasterCsv(fileUrl: string, mapping: MasterMapping):
   const csvText = await getCsv(fileUrl);
   const { headers, rows } = parseCsv(csvText);
 
+  if (!mapping.email) {
+    throw new Error('Mapping for email is required');
+  }
+  if (!headers.includes(mapping.email)) {
+    throw new Error(`Mapping refers to missing column "${mapping.email}"`);
+  }
+
   const hasFull = Boolean(mapping.fullName);
   const hasFirstLast = Boolean(mapping.firstName && mapping.lastName);
   if (!hasFull && !hasFirstLast) {
@@ -63,22 +75,34 @@ export async function processMasterCsv(fileUrl: string, mapping: MasterMapping):
     }
   }
 
-  const names = rows
+  const entries = rows
     .map((row) => {
+      const email = normalizeEmail(row[mapping.email]);
+      if (!email) return null;
       if (mapping.fullName) {
         const full = normalize(row[mapping.fullName]);
-        return full || null;
+        const name = full || null;
+        if (!name) return null;
+        return { email, name };
       }
       const first = normalize(row[mapping.firstName as string]);
       const last = normalize(row[mapping.lastName as string]);
       const full = `${first} ${last}`.trim();
-      return full || null;
+      if (!full) return null;
+      return { email, name: full };
     })
-    .filter(Boolean) as string[];
+    .filter(Boolean) as { email: string; name: string }[];
 
-  const uniqueNames = Array.from(new Set(names));
+  const uniqueByEmail = new Map<string, { email: string; name: string }>();
+  for (const entry of entries) {
+    if (!uniqueByEmail.has(entry.email)) {
+      uniqueByEmail.set(entry.email, entry);
+    }
+  }
+  const uniqueEntries = Array.from(uniqueByEmail.values());
+  const uniqueNames = uniqueEntries.map((e) => e.name);
 
-  const blob = new Blob([JSON.stringify(uniqueNames)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(uniqueEntries)], { type: 'application/json' });
 
   await put(MASTER_PATH, blob, {
     access: 'public',

@@ -29,6 +29,7 @@ export default function AdminUploadMasterPage() {
     firstName: "",
     lastName: "",
     fullName: "",
+    email: "",
   });
 
   const handleUpload = async (e: FormEvent) => {
@@ -41,7 +42,7 @@ export default function AdminUploadMasterPage() {
     setMessage(null);
     setIsUploading(true);
     setHeaders([]);
-    setMapping({ firstName: "", lastName: "", fullName: "" });
+    setMapping({ firstName: "", lastName: "", fullName: "", email: "" });
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -95,6 +96,7 @@ export default function AdminUploadMasterPage() {
 
   const allMapped =
     headers.length > 0 &&
+    Boolean(mapping.email) &&
     (Boolean(mapping.fullName) ||
       (Boolean(mapping.firstName) && Boolean(mapping.lastName)));
 
@@ -121,6 +123,7 @@ export default function AdminUploadMasterPage() {
             firstName: mapping.firstName || undefined,
             lastName: mapping.lastName || undefined,
             fullName: mapping.fullName || undefined,
+            email: mapping.email || undefined,
           },
         }),
       });
@@ -199,6 +202,7 @@ export default function AdminUploadMasterPage() {
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {([
+                      { key: "email", label: "User Email Address" },
                       { key: "fullName", label: "Full Name (combined)" },
                       { key: "firstName", label: "First Name" },
                       { key: "lastName", label: "Last Name" },
@@ -221,7 +225,7 @@ export default function AdminUploadMasterPage() {
                     ))}
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
-                    Map either a combined Full Name column, or both First Name and Last Name.
+                    Map the email column, and either a combined Full Name column, or both First Name and Last Name.
                   </p>
                 </>
               )}
