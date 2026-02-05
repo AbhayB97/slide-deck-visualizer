@@ -9,6 +9,7 @@ import { fetchLatestSnapshot, fetchSnapshotByWeek } from "@/lib/snapshots";
 import { getCheckpointInfo } from "@/lib/checkpoints";
 import { buildSessionKey, deriveEscalationStateForSession, escalationLevelFromCount } from "@/lib/escalation";
 import type { CheckpointRecord } from "@/lib/checkpointHistory";
+import { getScopeLabel, isSentDateInScope } from "@/lib/scope";
 
 export const runtime = "nodejs";
 
@@ -31,13 +32,6 @@ function addDaysIsoDateOnly(iso: string, days: number): string | null {
   if (Number.isNaN(d.getTime())) return null;
   d.setUTCDate(d.getUTCDate() + days);
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-}
-
-function isEligibleForEscalation(sentDate: unknown): boolean {
-  if (typeof sentDate !== "string") return false;
-  const d = new Date(sentDate);
-  if (Number.isNaN(d.getTime())) return false;
-  return d.getFullYear() === 2026;
 }
 
 export async function GET() {
@@ -66,7 +60,7 @@ export async function GET() {
     const latest = await fetchLatestSnapshot();
     if (!latest) {
       return NextResponse.json(
-        { currentCheckpoint: "", scope: "2026 sessions only", users: [], levelCounts: {} },
+        { currentCheckpoint: "", scope: getScopeLabel(), users: [], levelCounts: {} },
         { status: 200 }
       );
     }
@@ -76,7 +70,7 @@ export async function GET() {
     if (!current) {
       return NextResponse.json({
         currentCheckpoint: "",
-        scope: "2026 sessions only",
+        scope: getScopeLabel(),
         users: [],
         levelCounts: {
           CP0_GRACE: 0,
@@ -104,7 +98,7 @@ export async function GET() {
     }
 
     const rows = Array.isArray(latest.parsedRows) ? latest.parsedRows : [];
-    const eligibleRows = rows.filter((r: any) => isEligibleForEscalation(r?.sentDate));
+    const eligibleRows = rows.filter((r: any) => isSentDateInScope(r?.sentDate));
 
     const levelCounts: Record<string, number> = {
       CP0_GRACE: 0,
@@ -157,7 +151,7 @@ export async function GET() {
 
     return NextResponse.json({
       currentCheckpoint: current.checkpointDate,
-      scope: "2026 sessions only",
+      scope: getScopeLabel(),
       users,
       levelCounts,
     });

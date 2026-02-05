@@ -1,6 +1,7 @@
 import { head, put } from "@vercel/blob";
 import { getCheckpointInfo } from "@/lib/checkpoints";
 import type { Snapshot } from "@/lib/processCsvSnapshot";
+import { isSentDateInScope, getScopeLabel } from "@/lib/scope";
 
 export const CHECKPOINT_INDEX_PATH = "checkpoints/index.json";
 export const CHECKPOINT_DIR = "checkpoints";
@@ -34,10 +35,7 @@ function normalizeEmail(value: unknown): string {
 }
 
 function isEligibleForEscalation(sentDate: unknown): boolean {
-  if (typeof sentDate !== "string") return false;
-  const d = new Date(sentDate);
-  if (Number.isNaN(d.getTime())) return false;
-  return d.getFullYear() === 2026;
+  return isSentDateInScope(sentDate);
 }
 
 function toDate(value: unknown) {
@@ -132,7 +130,7 @@ export async function upsertCheckpointFromSnapshot(snapshot: Snapshot): Promise<
   const info = getCheckpointInfo(uploadedAt);
   if (!info) return null;
 
-  // Recompute from parsed rows when available to enforce eligibility rules (only sentDate year === 2026).
+  // Recompute from parsed rows when available to enforce eligibility rules (scope: {getScopeLabel()}).
   const parsedRows = Array.isArray((snapshot as unknown as { parsedRows?: unknown }).parsedRows)
     ? ((snapshot as unknown as { parsedRows?: unknown[] }).parsedRows ?? [])
     : null;

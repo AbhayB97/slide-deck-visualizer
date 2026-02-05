@@ -6,6 +6,7 @@ import { findPrevWeekId, saveWeekMetrics, type WeekMetrics } from '@/lib/metrics
 import { fetchSnapshotByWeek } from '@/lib/snapshots';
 import { getCheckpointInfo } from "@/lib/checkpoints";
 import { upsertCheckpointFromSnapshot } from "@/lib/checkpointHistory";
+import { isSentDateInScope } from "@/lib/scope";
 
 export type ParsedRow = {
   email: string;
@@ -90,12 +91,6 @@ function isIncomplete(status: string) {
   return INCOMPLETE_STATUSES.includes(status.toLowerCase());
 }
 
-function isEligibleForEscalation(sentDate: string): boolean {
-  const d = new Date(sentDate);
-  if (Number.isNaN(d.getTime())) return false;
-  return d.getFullYear() === 2026;
-}
-
 function buildParsedRows(rows: Record<string, string>[], mapping: FieldMapping): ParsedRow[] {
   return rows
     .map((row) => {
@@ -141,8 +136,8 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
   }
 
   const parsedRows = buildParsedRows(rows, mapping);
-  // Eligibility rule: only sessions with sentDate in year 2026 participate in escalation + checkpoint logic.
-  const eligibleRows = parsedRows.filter((r) => isEligibleForEscalation(r.sentDate));
+  // Eligibility rule: only sessions in configured scope years participate in escalation + checkpoint logic.
+  const eligibleRows = parsedRows.filter((r) => isSentDateInScope(r.sentDate));
   const uploadedAt = new Date();
   const weekId = getIsoWeekId(uploadedAt);
   const checkpoint = getCheckpointInfo(uploadedAt);
@@ -232,7 +227,7 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
     prevCountsByEmail = prevRows.reduce<Record<string, number>>((acc, row: any) => {
       const email = typeof row?.email === 'string' ? row.email.trim().toLowerCase() : '';
       const sentDate = typeof row?.sentDate === 'string' ? row.sentDate : '';
-      if (!isEligibleForEscalation(sentDate)) return acc;
+      if (!isSentDateInScope(sentDate)) return acc;
       if (!email) return acc;
       acc[email] = (acc[email] ?? 0) + 1;
       return acc;

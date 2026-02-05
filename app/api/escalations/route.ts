@@ -4,6 +4,7 @@ import { fetchLatestSnapshot, fetchSnapshotByWeek } from "@/lib/snapshots";
 import { getCheckpointInfo } from "@/lib/checkpoints";
 import { buildSessionKey, deriveEscalationStateForSession } from "@/lib/escalation";
 import type { CheckpointRecord } from "@/lib/checkpointHistory";
+import { getScopeLabel, isSentDateInScope } from "@/lib/scope";
 
 export const runtime = "nodejs";
 
@@ -26,13 +27,6 @@ function addDaysIsoDateOnly(iso: string, days: number): string | null {
 function normalizeEmail(value: unknown): string {
   if (typeof value !== "string") return "";
   return value.trim().toLowerCase();
-}
-
-function isEligibleForEscalation(sentDate: unknown): boolean {
-  if (typeof sentDate !== "string") return false;
-  const d = new Date(sentDate);
-  if (Number.isNaN(d.getTime())) return false;
-  return d.getFullYear() === 2026;
 }
 
 export async function GET(request: Request) {
@@ -68,7 +62,7 @@ export async function GET(request: Request) {
     }
 
     const rows = Array.isArray(snapshot.parsedRows) ? snapshot.parsedRows : [];
-    const eligibleRows = rows.filter((r: any) => isEligibleForEscalation(r?.sentDate));
+    const eligibleRows = rows.filter((r: any) => isSentDateInScope(r?.sentDate));
 
     const escalations = eligibleRows.map((r: any) => {
       const email = normalizeEmail(r?.email);
@@ -108,6 +102,7 @@ export async function GET(request: Request) {
       checkpoint,
       weekId: snapshot.weekId ?? null,
       escalations,
+      scope: getScopeLabel(),
     });
   } catch (error) {
     console.error("[escalations]", error);

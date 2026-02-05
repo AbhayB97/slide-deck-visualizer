@@ -41,7 +41,13 @@ const isOffender = (row) => {
 const isEligibleForEscalation = (row) => {
   const d = new Date(row?.sentDate);
   if (Number.isNaN(d.getTime())) return false;
-  return d.getFullYear() === 2026;
+  const yearsRaw = process?.env?.NEXT_PUBLIC_ESCALATION_SCOPE_YEARS || "2026";
+  const years = yearsRaw
+    .split(/[,\s]+/g)
+    .map((x) => Number(String(x).trim()))
+    .filter((n) => Number.isFinite(n));
+  const allowed = years.length ? years : [2026];
+  return allowed.includes(d.getFullYear());
 };
 
 const pendingDays = (sentDate) => {
@@ -726,7 +732,7 @@ export default function SlideDeckVisualizer() {
                     : "N/A"}
               </span>
               <span className="text-gray-300">|</span>
-              <span>Scope: 2026 sessions only</span>
+              <span>Scope: {checkpointStats?.scope || "2026 sessions only"}</span>
             </div>
           </div>
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchLatestSnapshot, fetchSnapshotByWeek } from "@/lib/snapshots";
 import { fetchWeekMetrics, findPrevWeekId, saveWeekMetrics, type WeekMetrics } from "@/lib/metrics";
+import { isSentDateInScope } from "@/lib/scope";
 
 export const runtime = "nodejs";
 
@@ -18,18 +19,11 @@ function normalizeNameKey(name: unknown): string {
     .toLowerCase();
 }
 
-function isEligibleForEscalation(sentDate: unknown): boolean {
-  if (typeof sentDate !== "string") return false;
-  const d = new Date(sentDate);
-  if (Number.isNaN(d.getTime())) return false;
-  return d.getFullYear() === 2026;
-}
-
 function buildCountsByEmail(snapshot: any): Record<string, { email: string; name: string; count: number }> {
   const rows: unknown[] = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
   return rows.reduce(
     (acc: Record<string, { email: string; name: string; count: number }>, row: any) => {
-      if (!isEligibleForEscalation(row?.sentDate)) return acc;
+      if (!isSentDateInScope(row?.sentDate)) return acc;
       const email = normalizeEmail(row?.email);
       if (!email) return acc;
       const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
@@ -46,12 +40,12 @@ function buildCountsByNameKey(snapshot: any): Record<string, { key: string; name
   const rows: unknown[] = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
   return rows.reduce(
     (acc: Record<string, { key: string; name: string; count: number }>, row: any) => {
-      if (!isEligibleForEscalation(row?.sentDate)) return acc;
+      if (!isSentDateInScope(row?.sentDate)) return acc;
       const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
       const key = normalizeNameKey(name);
       if (!key) return acc;
       acc[key] = acc[key] ?? { key, name, count: 0 };
-    acc[key].count += 1;
+      acc[key].count += 1;
     return acc;
     },
     {}
