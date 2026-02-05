@@ -37,6 +37,6 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Checkpoints (Thursday tracker)
 
-- Checkpoints are anchored to **Thursdays in Toronto time** (`America/Toronto`) and start counting from `2026-02-01` (Feb 1, 2026).
+- Checkpoints are anchored to **Thursdays in Toronto time** (`America/Toronto`) and start counting from `2026-01-01` (Jan 1, 2026).
 - Each uploaded snapshot is assigned to the next-or-same Thursday checkpoint and stored under `checkpoints/` in Blob storage.
 - Fetch rollups (users × checkpoints) via `GET /api/checkpoints`.

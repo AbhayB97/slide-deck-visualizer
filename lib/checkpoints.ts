@@ -1,4 +1,4 @@
-const CHECKPOINT_START_DATE_ISO = "2026-02-01"; // Start calculation from Feb 1 (inclusive, Toronto civil date)
+const CHECKPOINT_START_DATE_ISO = "2026-01-01"; // Start calculation from Jan 1 (inclusive, Toronto civil date)
 const CHECKPOINT_TIMEZONE = "America/Toronto";
 const CHECKPOINT_WEEKDAY = 4; // Thursday (Sun=0 ... Sat=6) in Toronto
 
