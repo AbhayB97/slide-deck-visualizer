@@ -974,7 +974,7 @@ export default function SlideDeckVisualizer() {
                     .map((u, idx) => (
                       <tr
                         key={`${u.email || "no-email"}-${u.sentDate || idx}-${idx}`}
-                        className={u.actionDueNow ? "bg-amber-50" : "bg-white"}
+                        className={`${u.actionDueNow ? "bg-amber-50" : "bg-white"} text-gray-900`}
                       >
                         <td className="p-3 whitespace-nowrap font-semibold">{u.escalationLevel || "-"}</td>
                         <td className="p-3 min-w-[220px] text-gray-700">
