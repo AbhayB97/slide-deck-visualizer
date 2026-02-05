@@ -101,6 +101,7 @@ export default function SlideDeckVisualizer() {
   const [snapshot, setSnapshot] = useState(null);
   const [loadingSnapshot, setLoadingSnapshot] = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [loadingCheckpoints, setLoadingCheckpoints] = useState(true);
   const [error, setError] = useState(null);
   const [statusNotice, setStatusNotice] = useState(null); // friendly states for missing/empty snapshots
   const [history, setHistory] = useState([]);
@@ -108,6 +109,8 @@ export default function SlideDeckVisualizer() {
   const [metricsPrevWeekId, setMetricsPrevWeekId] = useState(null);
   const [deltaByName, setDeltaByName] = useState({});
   const [loadingMetrics, setLoadingMetrics] = useState(false);
+  const [checkpointStats, setCheckpointStats] = useState(null);
+  const [checkpointError, setCheckpointError] = useState(null);
 
   const [viewMode, setViewMode] = useState("grid");
   const [selectedUser, setSelectedUser] = useState(null);
@@ -235,6 +238,28 @@ export default function SlideDeckVisualizer() {
 
   useEffect(() => {
     loadHistory();
+  }, []);
+
+  async function loadCheckpoints() {
+    try {
+      setLoadingCheckpoints(true);
+      setCheckpointError(null);
+      const res = await fetch("/api/checkpoints");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "Failed to load checkpoints");
+      }
+      setCheckpointStats(json);
+    } catch (err) {
+      setCheckpointStats(null);
+      setCheckpointError(err?.message || "Failed to load checkpoints");
+    } finally {
+      setLoadingCheckpoints(false);
+    }
+  }
+
+  useEffect(() => {
+    loadCheckpoints();
   }, []);
 
   const orderedWeeks = useMemo(() => {
@@ -513,6 +538,23 @@ export default function SlideDeckVisualizer() {
                 <span>Total Items: {totalTasks}</span>
                 <span className="mx-1 text-gray-300">|</span>
                 <span>Total People: {masterCount}</span>
+                <span className="mx-1 text-gray-300">|</span>
+                <span className="font-medium text-gray-700">
+                  Checkpoint (Toronto):{" "}
+                  {snapshot?.checkpointDate
+                    ? `${snapshot.checkpointDate}${snapshot?.checkpointOrdinal ? ` (#${snapshot.checkpointOrdinal})` : ""}`
+                    : loadingCheckpoints
+                      ? "Loading..."
+                      : "N/A"}
+                </span>
+                {!loadingCheckpoints && checkpointStats?.totalCheckpoints != null && (
+                  <>
+                    <span className="mx-1 text-gray-300">|</span>
+                    <span className="text-gray-600">
+                      Tracked checkpoints: {checkpointStats.totalCheckpoints}
+                    </span>
+                  </>
+                )}
                 {snapshot?.weekId && (
                   <>
                     <span className="mx-1 text-gray-300">|</span>
@@ -525,6 +567,11 @@ export default function SlideDeckVisualizer() {
             </div>
 
             <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
+              {checkpointError && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  Checkpoints: {checkpointError}
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <label className="text-sm text-gray-600" htmlFor="week-select">
                   Week

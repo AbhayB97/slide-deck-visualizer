@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fetchLatestSnapshot } from '@/lib/snapshots';
+import { getCheckpointInfo } from "@/lib/checkpoints";
 
 export const runtime = 'nodejs';
 
@@ -13,9 +14,19 @@ export async function GET() {
       );
     }
 
+    const info = snapshot.uploadedAt ? getCheckpointInfo(new Date(snapshot.uploadedAt)) : null;
+    const enriched = info
+      ? {
+          ...snapshot,
+          checkpointId: snapshot.checkpointId ?? info.checkpointId,
+          checkpointDate: snapshot.checkpointDate ?? info.checkpointDate,
+          checkpointOrdinal: snapshot.checkpointOrdinal ?? info.checkpointOrdinal,
+        }
+      : snapshot;
+
     return NextResponse.json({
       success: true,
-      snapshot,
+      snapshot: enriched,
     });
   } catch (error) {
     console.error('[latest-snapshot]', error);
