@@ -8,6 +8,7 @@ import { fetchHistoryIndex } from "@/lib/history";
 import { fetchLatestSnapshot, fetchSnapshotByWeek } from "@/lib/snapshots";
 import { getCheckpointInfo } from "@/lib/checkpoints";
 import { buildSessionKey, deriveEscalationStateForSession, escalationLevelFromCount } from "@/lib/escalation";
+import type { CheckpointRecord } from "@/lib/checkpointHistory";
 
 export const runtime = "nodejs";
 
@@ -96,7 +97,7 @@ export async function GET() {
       .slice()
       .sort((a, b) => a.checkpointOrdinal - b.checkpointOrdinal);
 
-    const recordsAsc = [];
+    const recordsAsc: CheckpointRecord[] = [];
     for (const c of checkpoints2) {
       const r = await fetchCheckpointRecord(c.checkpointId);
       if (r) recordsAsc.push(r);
