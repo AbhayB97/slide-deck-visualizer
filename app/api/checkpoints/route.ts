@@ -10,6 +10,7 @@ import { getCheckpointInfo } from "@/lib/checkpoints";
 import { buildSessionKey, deriveEscalationStateForSession, escalationLevelFromCount } from "@/lib/escalation";
 import type { CheckpointRecord } from "@/lib/checkpointHistory";
 import { getScopeLabel, isSentDateInScope } from "@/lib/scope";
+import { fetchMasterUsers } from "@/lib/lists";
 
 export const runtime = "nodejs";
 
@@ -73,11 +74,12 @@ export async function GET() {
         scope: getScopeLabel(),
         users: [],
         levelCounts: {
-          CP0_GRACE: 0,
-          CP1_AWARENESS: 0,
-          CP2_SUPPORT: 0,
-          CP3_HR: 0,
-          CP4_ENFORCEMENT: 0,
+          DEFCON_1: 0,
+          DEFCON_2: 0,
+          DEFCON_3: 0,
+          DEFCON_4: 0,
+          DEFCON_5: 0,
+          DEFCON_6: 0,
         },
       });
     }
@@ -101,11 +103,12 @@ export async function GET() {
     const eligibleRows = rows.filter((r: any) => isSentDateInScope(r?.sentDate));
 
     const levelCounts: Record<string, number> = {
-      CP0_GRACE: 0,
-      CP1_AWARENESS: 0,
-      CP2_SUPPORT: 0,
-      CP3_HR: 0,
-      CP4_ENFORCEMENT: 0,
+      DEFCON_1: 0,
+      DEFCON_2: 0,
+      DEFCON_3: 0,
+      DEFCON_4: 0,
+      DEFCON_5: 0,
+      DEFCON_6: 0,
     };
 
     const users = eligibleRows.map((r: any) => {
@@ -148,6 +151,14 @@ export async function GET() {
         actionDueNow,
       };
     });
+
+    // DEFCON 6 (Clear) is the goal state: users not present in the escalation queue.
+    // We approximate the population as the master list when available.
+    const masterUsers = await fetchMasterUsers().catch(() => []);
+    const totalPeople = Array.isArray(masterUsers) ? masterUsers.length : 0;
+    const queuedEmails = new Set(users.map((u) => normalizeEmail(u.email)).filter(Boolean));
+    const defcon6Count = totalPeople > 0 ? Math.max(0, totalPeople - queuedEmails.size) : 0;
+    levelCounts.DEFCON_6 = defcon6Count;
 
     return NextResponse.json({
       currentCheckpoint: current.checkpointDate,

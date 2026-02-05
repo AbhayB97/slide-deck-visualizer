@@ -161,7 +161,7 @@ export default function SlideDeckVisualizer() {
   const [loadingEscalations, setLoadingEscalations] = useState(false);
   const [escalationsError, setEscalationsError] = useState(null);
   const [levelFilter, setLevelFilter] = useState(null);
-  const [minLevelFilter, setMinLevelFilter] = useState("CP1");
+  const [minLevelFilter, setMinLevelFilter] = useState("D4");
   const [actionDueOnly, setActionDueOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filtersInitialized, setFiltersInitialized] = useState(false);
@@ -321,10 +321,10 @@ export default function SlideDeckVisualizer() {
     // Default view on Thursday morning (Toronto): Action Due Now + Level >= CP1.
     if (isThursdayMorningToronto()) {
       setActionDueOnly(true);
-      setMinLevelFilter("CP1");
+      setMinLevelFilter("D4");
     } else {
       setActionDueOnly(false);
-      setMinLevelFilter("CP1");
+      setMinLevelFilter("D4");
     }
     setFiltersInitialized(true);
   }, [filtersInitialized]);
@@ -743,37 +743,43 @@ export default function SlideDeckVisualizer() {
           )}
 
           {/* Level Summary */}
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
             {[
               {
-                key: "CP0_GRACE",
-                label: "CP0 \u2013 Grace",
-                card: "border-sky-200 bg-sky-50",
-                pill: "text-sky-900 bg-white border-sky-200",
+                key: "DEFCON_1",
+                label: "DEFCON 1 \u2013 Critical",
+                card: "border-red-200 bg-red-50",
+                pill: "text-red-900 bg-white border-red-200",
               },
               {
-                key: "CP1_AWARENESS",
-                label: "CP1 \u2013 Awareness",
-                card: "border-emerald-200 bg-emerald-50",
-                pill: "text-emerald-900 bg-white border-emerald-200",
-              },
-              {
-                key: "CP2_SUPPORT",
-                label: "CP2 \u2013 Support",
-                card: "border-amber-200 bg-amber-50",
-                pill: "text-amber-900 bg-white border-amber-200",
-              },
-              {
-                key: "CP3_HR",
-                label: "CP3 \u2013 HR",
+                key: "DEFCON_2",
+                label: "DEFCON 2 \u2013 HR",
                 card: "border-orange-200 bg-orange-50",
                 pill: "text-orange-900 bg-white border-orange-200",
               },
               {
-                key: "CP4_ENFORCEMENT",
-                label: "CP4 \u2013 Enforcement",
-                card: "border-red-200 bg-red-50",
-                pill: "text-red-900 bg-white border-red-200",
+                key: "DEFCON_3",
+                label: "DEFCON 3 \u2013 Support",
+                card: "border-amber-200 bg-amber-50",
+                pill: "text-amber-900 bg-white border-amber-200",
+              },
+              {
+                key: "DEFCON_4",
+                label: "DEFCON 4 \u2013 Awareness",
+                card: "border-emerald-200 bg-emerald-50",
+                pill: "text-emerald-900 bg-white border-emerald-200",
+              },
+              {
+                key: "DEFCON_5",
+                label: "DEFCON 5 \u2013 Grace",
+                card: "border-sky-200 bg-sky-50",
+                pill: "text-sky-900 bg-white border-sky-200",
+              },
+              {
+                key: "DEFCON_6",
+                label: "DEFCON 6 \u2013 Clear",
+                card: "border-gray-200 bg-gray-50",
+                pill: "text-gray-900 bg-white border-gray-200",
               },
             ].map((lvl) => {
               const count = Number.isFinite(checkpointStats?.levelCounts?.[lvl.key])
@@ -819,11 +825,12 @@ export default function SlideDeckVisualizer() {
                   className="border rounded-md px-3 py-2 text-sm text-gray-800 bg-white shadow-sm"
                   aria-label="Filter by minimum escalation level"
                 >
-                  <option value="CP0">CP0+</option>
-                  <option value="CP1">CP1+</option>
-                  <option value="CP2">CP2+</option>
-                  <option value="CP3">CP3+</option>
-                  <option value="CP4">CP4 only</option>
+                  <option value="D1">DEFCON 1 only</option>
+                  <option value="D2">DEFCON 2+</option>
+                  <option value="D3">DEFCON 3+</option>
+                  <option value="D4">DEFCON 4+</option>
+                  <option value="D5">DEFCON 5+</option>
+                  <option value="D6">DEFCON 6+</option>
                 </select>
               </div>
 
@@ -856,7 +863,7 @@ export default function SlideDeckVisualizer() {
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 text-gray-700">
                 <tr>
-                  <th className="text-left p-3 font-semibold">Escalation Level</th>
+                  <th className="text-left p-3 font-semibold">DEFCON</th>
                   <th className="text-left p-3 font-semibold">Action Guidance</th>
                   <th className="text-left p-3 font-semibold">Name</th>
                   <th className="text-left p-3 font-semibold">Email</th>
@@ -881,38 +888,43 @@ export default function SlideDeckVisualizer() {
                       const lvl = u?.escalationLevel || "";
                       const rank = (v) => {
                         switch (v) {
-                          case "CP4_ENFORCEMENT":
+                          case "DEFCON_1":
+                            return 5;
+                          case "DEFCON_2":
                             return 4;
-                          case "CP3_HR":
+                          case "DEFCON_3":
                             return 3;
-                          case "CP2_SUPPORT":
+                          case "DEFCON_4":
                             return 2;
-                          case "CP1_AWARENESS":
+                          case "DEFCON_5":
                             return 1;
-                          case "CP0_GRACE":
+                          case "DEFCON_6":
                             return 0;
                           default:
                             return -1;
                         }
                       };
                       const minRank =
-                        minLevelFilter === "CP4"
-                          ? 4
-                          : minLevelFilter === "CP3"
-                            ? 3
-                            : minLevelFilter === "CP2"
-                              ? 2
-                              : minLevelFilter === "CP1"
-                                ? 1
-                                : 0;
+                        minLevelFilter === "D1"
+                          ? 5
+                          : minLevelFilter === "D2"
+                            ? 4
+                            : minLevelFilter === "D3"
+                              ? 3
+                              : minLevelFilter === "D4"
+                                ? 2
+                                : minLevelFilter === "D5"
+                                  ? 1
+                                  : 0;
 
-                      // Default: hide CP0 unless user explicitly selects CP0+.
-                      if (!levelFilter && minRank >= 1 && lvl === "CP0_GRACE") return false;
+                      // Default: hide DEFCON 5 (grace) unless user explicitly selects DEFCON 5+ or card filter.
+                      if (!levelFilter && minRank >= 2 && lvl === "DEFCON_5") return false;
 
                       if (levelFilter && lvl !== levelFilter) return false;
 
-                      if (minLevelFilter === "CP4") {
-                        if (lvl !== "CP4_ENFORCEMENT") return false;
+                      // "D1 only" special-case
+                      if (minLevelFilter === "D1") {
+                        if (lvl !== "DEFCON_1") return false;
                       } else if (rank(lvl) < minRank) {
                         return false;
                       }
@@ -931,15 +943,17 @@ export default function SlideDeckVisualizer() {
                     .sort((a, b) => {
                       const rank = (lvl) => {
                         switch (lvl) {
-                          case "CP4_ENFORCEMENT":
+                          case "DEFCON_1":
+                            return 5;
+                          case "DEFCON_2":
                             return 4;
-                          case "CP3_HR":
+                          case "DEFCON_3":
                             return 3;
-                          case "CP2_SUPPORT":
+                          case "DEFCON_4":
                             return 2;
-                          case "CP1_AWARENESS":
+                          case "DEFCON_5":
                             return 1;
-                          case "CP0_GRACE":
+                          case "DEFCON_6":
                             return 0;
                           default:
                             return -1;
@@ -964,13 +978,13 @@ export default function SlideDeckVisualizer() {
                       >
                         <td className="p-3 whitespace-nowrap font-semibold">{u.escalationLevel || "-"}</td>
                         <td className="p-3 min-w-[220px] text-gray-700">
-                          {u.escalationLevel === "CP1_AWARENESS"
+                          {u.escalationLevel === "DEFCON_4"
                             ? "Notify user, add focus time"
-                            : u.escalationLevel === "CP2_SUPPORT"
+                            : u.escalationLevel === "DEFCON_3"
                               ? "Schedule 15-minute 1:1"
-                              : u.escalationLevel === "CP3_HR"
+                              : u.escalationLevel === "DEFCON_2"
                                 ? "HR warning, manager CC"
-                                : u.escalationLevel === "CP4_ENFORCEMENT"
+                                : u.escalationLevel === "DEFCON_1"
                                   ? "Access restriction"
                                   : "-"}
                         </td>
@@ -987,7 +1001,7 @@ export default function SlideDeckVisualizer() {
                 ) : (
                   <tr>
                     <td className="p-3 text-gray-500" colSpan={9}>
-                      No eligible (2026) escalation rows for this checkpoint.
+                      No eligible ({checkpointStats?.scope || "in-scope"}) escalation rows for this checkpoint.
                     </td>
                   </tr>
                 )}

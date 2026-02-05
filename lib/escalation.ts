@@ -1,11 +1,12 @@
 import type { CheckpointRecord } from "@/lib/checkpointHistory";
 
 export type EscalationLevel =
-  | "CP0_GRACE"
-  | "CP1_AWARENESS"
-  | "CP2_SUPPORT"
-  | "CP3_HR"
-  | "CP4_ENFORCEMENT";
+  | "DEFCON_1"
+  | "DEFCON_2"
+  | "DEFCON_3"
+  | "DEFCON_4"
+  | "DEFCON_5"
+  | "DEFCON_6";
 
 export type DerivedEscalationState = {
   firstCheckpointSeen: string; // YYYY-MM-DD (Thursday)
@@ -14,11 +15,14 @@ export type DerivedEscalationState = {
 };
 
 export function escalationLevelFromCount(count: number): EscalationLevel {
-  if (count <= 1) return "CP0_GRACE";
-  if (count === 2) return "CP1_AWARENESS";
-  if (count === 3) return "CP2_SUPPORT";
-  if (count === 4) return "CP3_HR";
-  return "CP4_ENFORCEMENT";
+  // DEFCON 1 is highest severity/critical.
+  // Count is consecutive checkpoints on list for this (user, session).
+  if (count >= 5) return "DEFCON_1";
+  if (count === 4) return "DEFCON_2";
+  if (count === 3) return "DEFCON_3";
+  if (count === 2) return "DEFCON_4";
+  if (count === 1) return "DEFCON_5";
+  return "DEFCON_6";
 }
 
 function normalizeEmail(value: unknown): string {
@@ -76,4 +80,3 @@ export function deriveEscalationStateForSession(params: {
     escalationLevel: escalationLevelFromCount(count),
   };
 }
-

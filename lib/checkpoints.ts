@@ -1,6 +1,7 @@
 // Hardcoded checkpoint constants (Toronto time).
 export const TIMEZONE = "America/Toronto";
 export const CUTOFF_DATE = "2026-02-12T09:00:00-05:00"; // Toronto time (offset provided)
+export const TEST_START_DATE = "2026-01-01T09:00:00-05:00"; // Toronto time; used only when CHECKPOINTS_FORCE_ENABLED=true
 
 const CHECKPOINT_WEEKDAY = 4; // Thursday (Sun=0 ... Sat=6)
 const CHECKPOINT_HOUR = 9;
@@ -127,11 +128,18 @@ export function getCheckpointInfo(date: Date = new Date()): CheckpointInfo | nul
 
   // Guardrail: no checkpoints in prod before cutover.
   const forceEnabled = String(process.env.CHECKPOINTS_FORCE_ENABLED || "").toLowerCase() === "true";
-  if (!forceEnabled && date.getTime() < cutoff.getTime()) {
-    return null;
+  if (!forceEnabled && date.getTime() < cutoff.getTime()) return null;
+
+  // Test mode: allow earlier checkpoints starting Jan 1, 2026 @ 9:00am Toronto.
+  const testStart = new Date(TEST_START_DATE);
+  if (forceEnabled) {
+    if (Number.isNaN(testStart.getTime())) {
+      throw new Error(`Invalid TEST_START_DATE: ${TEST_START_DATE}`);
+    }
+    if (date.getTime() < testStart.getTime()) return null;
   }
-  // In test mode, treat "now" as the effective cutoff so we can exercise the model without retroactive escalation.
-  const effectiveCutoff = forceEnabled && date.getTime() < cutoff.getTime() ? date : cutoff;
+
+  const effectiveCutoff = forceEnabled ? testStart : cutoff;
 
   const localNow = getCivilDateTimeInTimeZone(date, TIMEZONE);
   const localDate: CivilDate = { year: localNow.year, month: localNow.month, day: localNow.day };
