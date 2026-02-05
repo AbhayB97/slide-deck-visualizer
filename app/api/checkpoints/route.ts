@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { fetchCheckpointIndex, fetchCheckpointRecord } from "@/lib/checkpointHistory";
+import {
+  fetchCheckpointIndex,
+  fetchCheckpointRecord,
+  upsertCheckpointFromSnapshot,
+} from "@/lib/checkpointHistory";
+import { fetchHistoryIndex } from "@/lib/history";
+import { fetchSnapshotByWeek } from "@/lib/snapshots";
 
 export const runtime = "nodejs";
 
@@ -17,8 +23,26 @@ function normalizeEmail(value: unknown): string {
 
 export async function GET() {
   try {
-    const index = await fetchCheckpointIndex();
-    const checkpoints = (index.checkpoints ?? []).slice().sort((a, b) => a.checkpointOrdinal - b.checkpointOrdinal);
+    let index = await fetchCheckpointIndex();
+
+    // Lazy backfill: if checkpoints haven't been recorded yet but history exists,
+    // generate checkpoint records from historical snapshots.
+    if ((index.checkpoints ?? []).length === 0) {
+      const history = await fetchHistoryIndex();
+      const weeks = Array.isArray(history?.weeks) ? history.weeks : [];
+      for (const w of weeks) {
+        const weekId = typeof w?.weekId === "string" ? w.weekId : "";
+        if (!weekId) continue;
+        const snapshot = await fetchSnapshotByWeek(weekId);
+        if (!snapshot) continue;
+        await upsertCheckpointFromSnapshot(snapshot);
+      }
+      index = await fetchCheckpointIndex();
+    }
+
+    const checkpoints = (index.checkpoints ?? [])
+      .slice()
+      .sort((a, b) => a.checkpointOrdinal - b.checkpointOrdinal);
 
     const userMap = new Map<string, { checkpoints: number; lastDate: string; lastId: string }>();
 
@@ -75,4 +99,3 @@ export async function GET() {
     );
   }
 }
-

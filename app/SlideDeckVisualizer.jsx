@@ -790,6 +790,9 @@ export default function SlideDeckVisualizer() {
         <UserModal
           userName={selectedUser}
           sessions={selectedSessions}
+          checkpointDate={snapshot?.checkpointDate ?? null}
+          checkpointOrdinal={snapshot?.checkpointOrdinal ?? null}
+          weekId={snapshot?.weekId ?? null}
           onClose={() => setSelectedUser(null)}
         />
       </div>
@@ -798,10 +801,14 @@ export default function SlideDeckVisualizer() {
 }
 
 /* ---------- Modal Component ---------- */
-function UserModal({ userName, sessions, onClose }) {
+function UserModal({ userName, sessions, checkpointDate, checkpointOrdinal, weekId, onClose }) {
   if (!userName) return null;
 
   const headingId = "user-modal-title";
+  const checkpointLabel =
+    checkpointDate
+      ? `Checkpoint (Toronto): ${checkpointDate}${checkpointOrdinal ? ` (#${checkpointOrdinal})` : ""}`
+      : null;
 
   return (
     <div
@@ -813,9 +820,20 @@ function UserModal({ userName, sessions, onClose }) {
       <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl border border-gray-300 focus:outline-none">
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
-          <h2 id={headingId} className="text-2xl font-bold text-gray-900">
-            {userName}
-          </h2>
+          <div className="min-w-0">
+            <h2 id={headingId} className="text-2xl font-bold text-gray-900 truncate">
+              {userName}
+            </h2>
+            <div className="mt-1 text-xs text-gray-600 flex flex-wrap items-center gap-2">
+              {weekId && <span>Week: {weekId}</span>}
+              {checkpointLabel && (
+                <>
+                  <span className="text-gray-300">|</span>
+                  <span>{checkpointLabel}</span>
+                </>
+              )}
+            </div>
+          </div>
           <button
             onClick={onClose}
             className="text-sm px-3 py-1 rounded-md bg-gray-200 hover:bg-gray-300 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
