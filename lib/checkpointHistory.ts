@@ -38,8 +38,9 @@ function toDate(value: unknown) {
 
 function isBlobNotFoundError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
-  const e = err as { status?: unknown; statusCode?: unknown; code?: unknown };
-  return e.status === 404 || e.statusCode === 404 || e.code === "blob_not_found";
+  const e = err as { status?: unknown; statusCode?: unknown; code?: unknown; message?: unknown };
+  if (e.status === 404 || e.statusCode === 404 || e.code === "blob_not_found") return true;
+  return typeof e.message === "string" && e.message.includes("does not exist");
 }
 
 function buildCheckpointPath(checkpointId: string): string {
