@@ -1,27 +1,20 @@
-const CHECKPOINT_START_DATE_ISO = "2026-01-01"; // Start calculation from Jan 1 (inclusive, Toronto civil date)
-const CHECKPOINT_TIMEZONE = "America/Toronto";
-const CHECKPOINT_WEEKDAY = 4; // Thursday (Sun=0 ... Sat=6) in Toronto
+// Hardcoded checkpoint constants (Toronto time).
+export const TIMEZONE = "America/Toronto";
+export const CUTOFF_DATE = "2026-02-12T09:00:00-05:00"; // Toronto time (offset provided)
+
+const CHECKPOINT_WEEKDAY = 4; // Thursday (Sun=0 ... Sat=6)
+const CHECKPOINT_HOUR = 9;
+const CHECKPOINT_MINUTE = 0;
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
 type CivilDate = { year: number; month: number; day: number }; // month: 1-12
-
-function parseIsoDateOnly(value: string): CivilDate {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!m) throw new Error(`Invalid ISO date-only string: ${value}`);
-  return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) };
-}
+type CivilDateTime = CivilDate & { hour: number; minute: number; second: number };
 
 function formatIsoDateOnly(date: CivilDate): string {
   return `${date.year}-${pad2(date.month)}-${pad2(date.day)}`;
-}
-
-function compareCivilDate(a: CivilDate, b: CivilDate): number {
-  if (a.year !== b.year) return a.year - b.year;
-  if (a.month !== b.month) return a.month - b.month;
-  return a.day - b.day;
 }
 
 // Sakamoto's algorithm: 0=Sunday ... 6=Saturday
@@ -65,26 +58,59 @@ function addDays(date: CivilDate, days: number): CivilDate {
   return fromJdn(toJdn(date) + days);
 }
 
-function nextOrSameWeekday(date: CivilDate, weekday: number): CivilDate {
-  const diff = (weekday - dayOfWeek(date) + 7) % 7;
-  return addDays(date, diff);
-}
-
-function getCivilDateInTimeZone(date: Date, timeZone: string): CivilDate {
+function getCivilDateTimeInTimeZone(date: Date, timeZone: string): CivilDateTime {
   const dtf = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
   });
   const parts = dtf.formatToParts(date);
   const year = Number(parts.find((p) => p.type === "year")?.value);
   const month = Number(parts.find((p) => p.type === "month")?.value);
   const day = Number(parts.find((p) => p.type === "day")?.value);
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
-    throw new Error(`Failed to compute civil date for timezone: ${timeZone}`);
+  const hour = Number(parts.find((p) => p.type === "hour")?.value);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value);
+  const second = Number(parts.find((p) => p.type === "second")?.value);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    !Number.isFinite(second)
+  ) {
+    throw new Error(`Failed to compute civil datetime for timezone: ${timeZone}`);
   }
-  return { year, month, day };
+  return { year, month, day, hour, minute, second };
+}
+
+function diffMinutes(a: CivilDateTime, b: CivilDateTime): number {
+  const aDays = toJdn(a);
+  const bDays = toJdn(b);
+  return (
+    (aDays - bDays) * 1440 +
+    (a.hour - b.hour) * 60 +
+    (a.minute - b.minute)
+  );
+}
+
+// Convert a Toronto civil datetime to a UTC Date by iteratively correcting the offset using Intl.
+function zonedTimeToUtc(target: CivilDateTime, timeZone: string): Date {
+  // Initial guess: treat the civil datetime as if it were UTC.
+  let utcMs = Date.UTC(target.year, target.month - 1, target.day, target.hour, target.minute, target.second, 0);
+  for (let i = 0; i < 4; i += 1) {
+    const guess = new Date(utcMs);
+    const actualLocal = getCivilDateTimeInTimeZone(guess, timeZone);
+    const delta = diffMinutes(target, actualLocal);
+    if (delta === 0) return guess;
+    utcMs += delta * 60000;
+  }
+  return new Date(utcMs);
 }
 
 export type CheckpointInfo = {
@@ -94,17 +120,46 @@ export type CheckpointInfo = {
 };
 
 export function getCheckpointInfo(date: Date = new Date()): CheckpointInfo | null {
-  const start = parseIsoDateOnly(CHECKPOINT_START_DATE_ISO);
-  const localDate = getCivilDateInTimeZone(date, CHECKPOINT_TIMEZONE);
-  if (compareCivilDate(localDate, start) < 0) return null;
+  const cutoff = new Date(CUTOFF_DATE);
+  if (Number.isNaN(cutoff.getTime())) {
+    throw new Error(`Invalid CUTOFF_DATE: ${CUTOFF_DATE}`);
+  }
 
-  const firstCheckpoint = nextOrSameWeekday(start, CHECKPOINT_WEEKDAY);
-  const checkpointDateLocal = nextOrSameWeekday(localDate, CHECKPOINT_WEEKDAY);
+  // Guardrail: no checkpoints in prod before cutover.
+  if (date.getTime() < cutoff.getTime()) {
+    return null;
+  }
 
-  const daysSinceFirst = toJdn(checkpointDateLocal) - toJdn(firstCheckpoint);
+  const localNow = getCivilDateTimeInTimeZone(date, TIMEZONE);
+  const localDate: CivilDate = { year: localNow.year, month: localNow.month, day: localNow.day };
+
+  // Compute the Thursday of the current local week (next-or-same Thursday).
+  const dow = dayOfWeek(localDate);
+  const toThursday = (CHECKPOINT_WEEKDAY - dow + 7) % 7;
+  const thursday = addDays(localDate, toThursday);
+
+  // Candidate checkpoint is this Thursday at 09:00 Toronto.
+  const candidateLocal: CivilDateTime = {
+    year: thursday.year,
+    month: thursday.month,
+    day: thursday.day,
+    hour: CHECKPOINT_HOUR,
+    minute: CHECKPOINT_MINUTE,
+    second: 0,
+  };
+  const candidateUtc = zonedTimeToUtc(candidateLocal, TIMEZONE);
+
+  // If now is before the candidate checkpoint (including Thursday before 09:00), use previous Thursday.
+  const checkpointCivilDate = date.getTime() < candidateUtc.getTime() ? addDays(thursday, -7) : thursday;
+
+  // Ordinal: weeks since the first checkpoint at/after cutoff.
+  const cutoffLocal = getCivilDateTimeInTimeZone(cutoff, TIMEZONE);
+  const firstCheckpointDate: CivilDate = { year: cutoffLocal.year, month: cutoffLocal.month, day: cutoffLocal.day };
+  const daysSinceFirst = toJdn(checkpointCivilDate) - toJdn(firstCheckpointDate);
   const weeksSinceFirst = Math.floor(daysSinceFirst / 7);
-  const checkpointOrdinal = weeksSinceFirst + 1;
-  const checkpointDate = formatIsoDateOnly(checkpointDateLocal);
+  const checkpointOrdinal = Math.max(1, weeksSinceFirst + 1);
+
+  const checkpointDate = formatIsoDateOnly(checkpointCivilDate);
   const checkpointId = `checkpoint-${checkpointDate}`;
 
   return { checkpointId, checkpointDate, checkpointOrdinal };

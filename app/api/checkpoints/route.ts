@@ -5,20 +5,38 @@ import {
   upsertCheckpointFromSnapshot,
 } from "@/lib/checkpointHistory";
 import { fetchHistoryIndex } from "@/lib/history";
-import { fetchSnapshotByWeek } from "@/lib/snapshots";
+import { fetchLatestSnapshot, fetchSnapshotByWeek } from "@/lib/snapshots";
+import { getCheckpointInfo } from "@/lib/checkpoints";
+import { buildSessionKey, deriveEscalationStateForSession, escalationLevelFromCount } from "@/lib/escalation";
 
 export const runtime = "nodejs";
-
-type UserCheckpointStat = {
-  email: string;
-  checkpointsOnList: number;
-  lastSeenCheckpointDate: string | null;
-  lastSeenCheckpointId: string | null;
-};
 
 function normalizeEmail(value: unknown): string {
   if (typeof value !== "string") return "";
   return value.trim().toLowerCase();
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function addDaysIsoDateOnly(iso: string, days: number): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((iso ?? "").trim());
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const d = new Date(Date.UTC(year, month, day));
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + days);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+
+function isEligibleForEscalation(sentDate: unknown): boolean {
+  if (typeof sentDate !== "string") return false;
+  const d = new Date(sentDate);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getFullYear() === 2026;
 }
 
 export async function GET() {
@@ -44,57 +62,108 @@ export async function GET() {
       .slice()
       .sort((a, b) => a.checkpointOrdinal - b.checkpointOrdinal);
 
-    const userMap = new Map<string, { checkpoints: number; lastDate: string; lastId: string }>();
-
-    for (const cp of checkpoints) {
-      const record = await fetchCheckpointRecord(cp.checkpointId);
-      if (!record) continue;
-
-      const set = new Set(
-        (record.highRiskEmails ?? []).map(normalizeEmail).filter(Boolean)
+    const latest = await fetchLatestSnapshot();
+    if (!latest) {
+      return NextResponse.json(
+        { currentCheckpoint: "", scope: "2026 sessions only", users: [], levelCounts: {} },
+        { status: 200 }
       );
-      for (const email of set) {
-        const prev = userMap.get(email);
-        if (!prev) {
-          userMap.set(email, {
-            checkpoints: 1,
-            lastDate: record.checkpointDate,
-            lastId: record.checkpointId,
-          });
-          continue;
-        }
-        prev.checkpoints += 1;
-        // Since we iterate in ascending ordinal order, last write wins.
-        prev.lastDate = record.checkpointDate;
-        prev.lastId = record.checkpointId;
-      }
     }
 
-    const users: UserCheckpointStat[] = Array.from(userMap.entries())
-      .map(([email, v]) => ({
+    const uploadedAt = latest.uploadedAt ? new Date(latest.uploadedAt) : new Date();
+    const current = getCheckpointInfo(uploadedAt);
+    if (!current) {
+      return NextResponse.json({
+        currentCheckpoint: "",
+        scope: "2026 sessions only",
+        users: [],
+        levelCounts: {
+          CP0_GRACE: 0,
+          CP1_AWARENESS: 0,
+          CP2_SUPPORT: 0,
+          CP3_HR: 0,
+          CP4_ENFORCEMENT: 0,
+        },
+      });
+    }
+
+    // Ensure the current checkpoint record exists so consecutive derivation works.
+    await upsertCheckpointFromSnapshot(latest);
+
+    // Reload index now that we may have inserted the current checkpoint.
+    index = await fetchCheckpointIndex();
+    const checkpoints2 = (index.checkpoints ?? [])
+      .slice()
+      .sort((a, b) => a.checkpointOrdinal - b.checkpointOrdinal);
+
+    const recordsAsc = [];
+    for (const c of checkpoints2) {
+      const r = await fetchCheckpointRecord(c.checkpointId);
+      if (r) recordsAsc.push(r);
+    }
+
+    const rows = Array.isArray(latest.parsedRows) ? latest.parsedRows : [];
+    const eligibleRows = rows.filter((r: any) => isEligibleForEscalation(r?.sentDate));
+
+    const levelCounts: Record<string, number> = {
+      CP0_GRACE: 0,
+      CP1_AWARENESS: 0,
+      CP2_SUPPORT: 0,
+      CP3_HR: 0,
+      CP4_ENFORCEMENT: 0,
+    };
+
+    const users = eligibleRows.map((r: any) => {
+      const name = typeof r?.fullName === "string" ? r.fullName.trim() : "";
+      const email = normalizeEmail(r?.email);
+      const sessionTitle = typeof r?.title === "string" ? r.title.trim() : "";
+      const sentDate = typeof r?.sentDate === "string" ? r.sentDate.trim() : "";
+      const sessionId = buildSessionKey(sentDate, sessionTitle);
+
+      const derived =
+        email && sessionId
+          ? deriveEscalationStateForSession({
+              recordsAsc,
+              email,
+              sessionKey: sessionId,
+              currentCheckpointId: current.checkpointId,
+            })
+          : null;
+
+      const consecutiveCheckpointCount = derived?.consecutiveCheckpointCount ?? 0;
+      const escalationLevel =
+        derived?.escalationLevel ?? escalationLevelFromCount(consecutiveCheckpointCount);
+      const nextEscalationCheckpoint =
+        consecutiveCheckpointCount > 0 && consecutiveCheckpointCount < 5
+          ? addDaysIsoDateOnly(current.checkpointDate, 7) ?? ""
+          : "";
+      const actionDueNow = Boolean(consecutiveCheckpointCount > 0 && consecutiveCheckpointCount <= 5);
+
+      levelCounts[escalationLevel] = (levelCounts[escalationLevel] ?? 0) + 1;
+
+      return {
+        name,
         email,
-        checkpointsOnList: v.checkpoints,
-        lastSeenCheckpointDate: v.lastDate ?? null,
-        lastSeenCheckpointId: v.lastId ?? null,
-      }))
-      .sort((a, b) => b.checkpointsOnList - a.checkpointsOnList || a.email.localeCompare(b.email));
+        sessionTitle,
+        sentDate,
+        escalationLevel,
+        consecutiveCheckpointCount,
+        firstCheckpointSeen: derived?.firstCheckpointSeen ?? "",
+        nextEscalationCheckpoint,
+        actionDueNow,
+      };
+    });
 
     return NextResponse.json({
-      success: true,
-      totalCheckpoints: checkpoints.length,
-      checkpoints: checkpoints.map((c) => ({
-        checkpointId: c.checkpointId,
-        checkpointDate: c.checkpointDate,
-        checkpointOrdinal: c.checkpointOrdinal,
-        latestWeekId: c.latestWeekId,
-        latestUploadedAt: c.latestUploadedAt,
-      })),
+      currentCheckpoint: current.checkpointDate,
+      scope: "2026 sessions only",
       users,
+      levelCounts,
     });
   } catch (error) {
     console.error("[checkpoints]", error);
     return NextResponse.json(
-      { success: false, error: "Failed to load checkpoint stats" },
+      { error: "Failed to load checkpoint stats" },
       { status: 500 }
     );
   }

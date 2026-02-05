@@ -18,15 +18,23 @@ function normalizeNameKey(name: unknown): string {
     .toLowerCase();
 }
 
+function isEligibleForEscalation(sentDate: unknown): boolean {
+  if (typeof sentDate !== "string") return false;
+  const d = new Date(sentDate);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getFullYear() === 2026;
+}
+
 function buildCountsByEmail(snapshot: any): Record<string, { email: string; name: string; count: number }> {
   const rows: unknown[] = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
   return rows.reduce(
     (acc: Record<string, { email: string; name: string; count: number }>, row: any) => {
+      if (!isEligibleForEscalation(row?.sentDate)) return acc;
       const email = normalizeEmail(row?.email);
-    if (!email) return acc;
-    const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
-    acc[email] = acc[email] ?? { email, name, count: 0 };
-    acc[email].count += 1;
+      if (!email) return acc;
+      const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
+      acc[email] = acc[email] ?? { email, name, count: 0 };
+      acc[email].count += 1;
     if (!acc[email].name && name) acc[email].name = name;
     return acc;
     },
@@ -38,10 +46,11 @@ function buildCountsByNameKey(snapshot: any): Record<string, { key: string; name
   const rows: unknown[] = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
   return rows.reduce(
     (acc: Record<string, { key: string; name: string; count: number }>, row: any) => {
+      if (!isEligibleForEscalation(row?.sentDate)) return acc;
       const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
-    const key = normalizeNameKey(name);
-    if (!key) return acc;
-    acc[key] = acc[key] ?? { key, name, count: 0 };
+      const key = normalizeNameKey(name);
+      if (!key) return acc;
+      acc[key] = acc[key] ?? { key, name, count: 0 };
     acc[key].count += 1;
     return acc;
     },

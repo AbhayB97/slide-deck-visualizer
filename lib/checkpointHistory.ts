@@ -23,12 +23,21 @@ export type CheckpointRecord = {
   checkpointOrdinal: number;
   weekId: string;
   uploadedAt: string;
-  highRiskEmails: string[]; // may contain names if legacy snapshot
+  // Back-compat: older checkpoint records only have highRiskEmails; newer ones store sessionsByEmail.
+  highRiskEmails: string[];
+  sessionsByEmail?: Record<string, string[]>; // session keys present at this checkpoint (eligible sessions only)
 };
 
 function normalizeEmail(value: unknown): string {
   if (typeof value !== "string") return "";
   return value.trim().toLowerCase();
+}
+
+function isEligibleForEscalation(sentDate: unknown): boolean {
+  if (typeof sentDate !== "string") return false;
+  const d = new Date(sentDate);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getFullYear() === 2026;
 }
 
 function toDate(value: unknown) {
@@ -90,6 +99,15 @@ export async function fetchCheckpointRecord(checkpointId: string): Promise<Check
       highRiskEmails: Array.isArray(data.highRiskEmails)
         ? data.highRiskEmails.map(normalizeEmail).filter(Boolean)
         : [],
+      sessionsByEmail:
+        data.sessionsByEmail && typeof data.sessionsByEmail === "object"
+          ? Object.fromEntries(
+              Object.entries(data.sessionsByEmail).map(([email, sessions]) => [
+                normalizeEmail(email),
+                Array.isArray(sessions) ? sessions.filter((s) => typeof s === "string" && s) : [],
+              ])
+            )
+          : undefined,
     };
   } catch (err: unknown) {
     if (isBlobNotFoundError(err)) return null;
@@ -114,14 +132,44 @@ export async function upsertCheckpointFromSnapshot(snapshot: Snapshot): Promise<
   const info = getCheckpointInfo(uploadedAt);
   if (!info) return null;
 
-  const riskListRaw: unknown[] = Array.isArray((snapshot as unknown as { highRiskEmails?: unknown }).highRiskEmails)
-    ? (((snapshot as unknown as { highRiskEmails?: unknown }).highRiskEmails as unknown[]) ?? [])
-    : Array.isArray((snapshot as unknown as { offenderList?: unknown }).offenderList)
-      ? (((snapshot as unknown as { offenderList?: unknown }).offenderList as unknown[]) ?? [])
-      : [];
-  const highRiskEmails = Array.from(
-    new Set(riskListRaw.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).map(normalizeEmail))
-  );
+  // Recompute from parsed rows when available to enforce eligibility rules (only sentDate year === 2026).
+  const parsedRows = Array.isArray((snapshot as unknown as { parsedRows?: unknown }).parsedRows)
+    ? ((snapshot as unknown as { parsedRows?: unknown[] }).parsedRows ?? [])
+    : null;
+
+  const sessionsByEmail =
+    parsedRows && parsedRows.length
+      ? parsedRows.reduce<Record<string, string[]>>((acc, r) => {
+          const sentDate = (r as { sentDate?: unknown } | null)?.sentDate;
+          if (!isEligibleForEscalation(sentDate)) return acc;
+          const email = normalizeEmail((r as { email?: unknown } | null)?.email);
+          if (!email) return acc;
+          const titleRaw = (r as { title?: unknown } | null)?.title;
+          const title = typeof titleRaw === "string" ? titleRaw.trim() : "";
+          const sent = typeof sentDate === "string" ? sentDate.trim() : "";
+          if (!title || !sent) return acc;
+          const key = `${sent}::${title}`;
+          acc[email] = acc[email] ?? [];
+          acc[email].push(key);
+          return acc;
+        }, {})
+      : null;
+
+  const riskListRaw: unknown[] =
+    (sessionsByEmail ? Object.keys(sessionsByEmail) : null) ??
+    (Array.isArray((snapshot as unknown as { highRiskEmails?: unknown }).highRiskEmails)
+      ? (((snapshot as unknown as { highRiskEmails?: unknown }).highRiskEmails as unknown[]) ?? [])
+      : Array.isArray((snapshot as unknown as { offenderList?: unknown }).offenderList)
+        ? (((snapshot as unknown as { offenderList?: unknown }).offenderList as unknown[]) ?? [])
+        : []);
+
+  const highRiskEmails = Array.isArray(riskListRaw)
+    ? Array.from(
+        new Set(
+          riskListRaw.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).map(normalizeEmail)
+        )
+      )
+    : [];
 
   const checkpointRecord: CheckpointRecord = {
     checkpointId: info.checkpointId,
@@ -130,6 +178,14 @@ export async function upsertCheckpointFromSnapshot(snapshot: Snapshot): Promise<
     weekId: snapshot.weekId ?? "",
     uploadedAt: uploadedAt.toISOString(),
     highRiskEmails,
+    sessionsByEmail: sessionsByEmail
+      ? Object.fromEntries(
+          Object.entries(sessionsByEmail).map(([email, sessions]) => [
+            normalizeEmail(email),
+            Array.from(new Set(sessions)),
+          ])
+        )
+      : undefined,
   };
 
   const existing = await fetchCheckpointRecord(info.checkpointId);

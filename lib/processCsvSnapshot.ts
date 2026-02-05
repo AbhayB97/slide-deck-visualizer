@@ -90,6 +90,12 @@ function isIncomplete(status: string) {
   return INCOMPLETE_STATUSES.includes(status.toLowerCase());
 }
 
+function isEligibleForEscalation(sentDate: string): boolean {
+  const d = new Date(sentDate);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getFullYear() === 2026;
+}
+
 function buildParsedRows(rows: Record<string, string>[], mapping: FieldMapping): ParsedRow[] {
   return rows
     .map((row) => {
@@ -135,18 +141,20 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
   }
 
   const parsedRows = buildParsedRows(rows, mapping);
+  // Eligibility rule: only sessions with sentDate in year 2026 participate in escalation + checkpoint logic.
+  const eligibleRows = parsedRows.filter((r) => isEligibleForEscalation(r.sentDate));
   const uploadedAt = new Date();
   const weekId = getIsoWeekId(uploadedAt);
   const checkpoint = getCheckpointInfo(uploadedAt);
 
   const offenderList = Array.from(
-    new Set(parsedRows.map((row) => row.fullName).filter(Boolean))
+    new Set(eligibleRows.map((row) => row.fullName).filter(Boolean))
   );
   const highRiskEmails = Array.from(
-    new Set(parsedRows.map((row) => row.email).filter(Boolean))
+    new Set(eligibleRows.map((row) => row.email).filter(Boolean))
   );
 
-  const currentCountsByEmail = parsedRows.reduce<Record<string, { email: string; name: string; count: number }>>(
+  const currentCountsByEmail = eligibleRows.reduce<Record<string, { email: string; name: string; count: number }>>(
     (acc, row) => {
       const email = row.email;
       if (!email) return acc;
@@ -158,10 +166,10 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
     {}
   );
 
-  const notStarted = parsedRows.filter(
+  const notStarted = eligibleRows.filter(
     (row) => row.status.toLowerCase() === 'not started'
   ).length;
-  const inProgress = parsedRows.filter(
+  const inProgress = eligibleRows.filter(
     (row) => row.status.toLowerCase() === 'in progress'
   ).length;
 
@@ -223,6 +231,8 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
     const prevRows = Array.isArray(prevSnapshot?.parsedRows) ? prevSnapshot.parsedRows : [];
     prevCountsByEmail = prevRows.reduce<Record<string, number>>((acc, row: any) => {
       const email = typeof row?.email === 'string' ? row.email.trim().toLowerCase() : '';
+      const sentDate = typeof row?.sentDate === 'string' ? row.sentDate : '';
+      if (!isEligibleForEscalation(sentDate)) return acc;
       if (!email) return acc;
       acc[email] = (acc[email] ?? 0) + 1;
       return acc;

@@ -38,10 +38,50 @@ const isOffender = (row) => {
   return s === "not started" || s === "in progress";
 };
 
+const isEligibleForEscalation = (row) => {
+  const d = new Date(row?.sentDate);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getFullYear() === 2026;
+};
+
 const pendingDays = (sentDate) => {
   const sent = new Date(sentDate);
   if (Number.isNaN(sent.getTime())) return "N/A";
   return Math.floor((Date.now() - sent.getTime()) / 86400000);
+};
+
+const formatCheckpointToronto = (checkpointDate) => {
+  if (!checkpointDate) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(checkpointDate).trim());
+  if (!m) return checkpointDate;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (Number.isNaN(d.getTime())) return checkpointDate;
+  const dateLabel = d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "America/Toronto",
+  });
+  return `${dateLabel} \u2013 9:00 am (Toronto)`;
+};
+
+const getTorontoNowParts = () => {
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    weekday: "short",
+    hour: "2-digit",
+    hour12: false,
+  });
+  const parts = dtf.formatToParts(new Date());
+  const weekday = parts.find((p) => p.type === "weekday")?.value || "";
+  const hour = Number(parts.find((p) => p.type === "hour")?.value);
+  return { weekday, hour: Number.isFinite(hour) ? hour : null };
+};
+
+const isThursdayMorningToronto = () => {
+  const { weekday, hour } = getTorontoNowParts();
+  // "Thursday morning" default: Thu in Toronto, before noon.
+  return weekday.toLowerCase().startsWith("thu") && hour != null && hour < 12;
 };
 
 const clamp01 = (value) => Math.min(1, Math.max(0, value));
@@ -111,6 +151,14 @@ export default function SlideDeckVisualizer() {
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [checkpointStats, setCheckpointStats] = useState(null);
   const [checkpointError, setCheckpointError] = useState(null);
+  const [escalationRows, setEscalationRows] = useState([]);
+  const [loadingEscalations, setLoadingEscalations] = useState(false);
+  const [escalationsError, setEscalationsError] = useState(null);
+  const [levelFilter, setLevelFilter] = useState(null);
+  const [minLevelFilter, setMinLevelFilter] = useState("CP1");
+  const [actionDueOnly, setActionDueOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filtersInitialized, setFiltersInitialized] = useState(false);
 
   const [viewMode, setViewMode] = useState("grid");
   const [selectedUser, setSelectedUser] = useState(null);
@@ -246,7 +294,7 @@ export default function SlideDeckVisualizer() {
       setCheckpointError(null);
       const res = await fetch("/api/checkpoints");
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.success) {
+      if (!res.ok) {
         throw new Error(json?.error || "Failed to load checkpoints");
       }
       setCheckpointStats(json);
@@ -261,6 +309,39 @@ export default function SlideDeckVisualizer() {
   useEffect(() => {
     loadCheckpoints();
   }, []);
+
+  useEffect(() => {
+    if (filtersInitialized) return;
+    // Default view on Thursday morning (Toronto): Action Due Now + Level >= CP1.
+    if (isThursdayMorningToronto()) {
+      setActionDueOnly(true);
+      setMinLevelFilter("CP1");
+    } else {
+      setActionDueOnly(false);
+      setMinLevelFilter("CP1");
+    }
+    setFiltersInitialized(true);
+  }, [filtersInitialized]);
+
+  async function loadEscalations(weekId) {
+    try {
+      setLoadingEscalations(true);
+      setEscalationsError(null);
+      const q = weekId ? `?week=${encodeURIComponent(weekId)}` : "";
+      const res = await fetch(`/api/escalations${q}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "Failed to load escalations");
+      }
+      const rows = Array.isArray(json?.escalations) ? json.escalations : [];
+      setEscalationRows(rows);
+    } catch (err) {
+      setEscalationRows([]);
+      setEscalationsError(err?.message || "Failed to load escalations");
+    } finally {
+      setLoadingEscalations(false);
+    }
+  }
 
   const orderedWeeks = useMemo(() => {
     const safe = Array.isArray(history) ? [...history] : [];
@@ -360,6 +441,10 @@ export default function SlideDeckVisualizer() {
     loadWeekMetrics(selectedWeek);
   }, [selectedWeek, orderedWeeks, snapshot?.snapshotId]);
 
+  useEffect(() => {
+    loadEscalations(selectedWeek);
+  }, [selectedWeek, snapshot?.snapshotId]);
+
   async function loadLists() {
     try {
       setListsError(null);
@@ -392,7 +477,8 @@ export default function SlideDeckVisualizer() {
 
   /* ---------- Derived Data from Snapshot ---------- */
   const parsedRows = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
-  const offenderRows = parsedRows.filter(isOffender);
+  const allOffenderRows = parsedRows.filter(isOffender);
+  const offenderRows = allOffenderRows.filter(isEligibleForEscalation);
 
   const offenderCounts = useMemo(() => {
     const c = {};
@@ -421,6 +507,9 @@ export default function SlideDeckVisualizer() {
 
   const selectedSessions = offenderRows.filter(
     (row) => row.fullName === selectedUser
+  );
+  const selectedLegacySessions = allOffenderRows.filter(
+    (row) => row.fullName === selectedUser && !isEligibleForEscalation(row)
   );
 
   const uploadedLabel = snapshot?.uploadedAt
@@ -547,11 +636,11 @@ export default function SlideDeckVisualizer() {
                       ? "Loading..."
                       : "N/A"}
                 </span>
-                {!loadingCheckpoints && checkpointStats?.totalCheckpoints != null && (
+                {!loadingCheckpoints && Array.isArray(checkpointStats?.users) && (
                   <>
                     <span className="mx-1 text-gray-300">|</span>
                     <span className="text-gray-600">
-                      Tracked checkpoints: {checkpointStats.totalCheckpoints}
+                      Escalation rows: {checkpointStats.users.length}
                     </span>
                   </>
                 )}
@@ -617,6 +706,290 @@ export default function SlideDeckVisualizer() {
           </div>
         </div>
 
+        {/* Escalation Queue */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border">
+          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            <div className="font-semibold">New checkpoint model active</div>
+            <div className="text-blue-800">
+              Effective Feb 12, 2026. No retroactive escalation.
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <h2 className="text-2xl font-bold text-gray-900">Escalation Queue</h2>
+            <div className="text-sm text-gray-600 flex flex-wrap items-center gap-2">
+              <span className="font-medium">
+                Checkpoint:{" "}
+                {checkpointStats?.currentCheckpoint
+                  ? formatCheckpointToronto(checkpointStats.currentCheckpoint)
+                  : loadingCheckpoints
+                    ? "Loading..."
+                    : "N/A"}
+              </span>
+              <span className="text-gray-300">|</span>
+              <span>Scope: 2026 sessions only</span>
+            </div>
+          </div>
+
+          {checkpointError && (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              {checkpointError}
+            </div>
+          )}
+
+          {/* Level Summary */}
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {[
+              {
+                key: "CP0_GRACE",
+                label: "CP0 \u2013 Grace",
+                card: "border-sky-200 bg-sky-50",
+                pill: "text-sky-900 bg-white border-sky-200",
+              },
+              {
+                key: "CP1_AWARENESS",
+                label: "CP1 \u2013 Awareness",
+                card: "border-emerald-200 bg-emerald-50",
+                pill: "text-emerald-900 bg-white border-emerald-200",
+              },
+              {
+                key: "CP2_SUPPORT",
+                label: "CP2 \u2013 Support",
+                card: "border-amber-200 bg-amber-50",
+                pill: "text-amber-900 bg-white border-amber-200",
+              },
+              {
+                key: "CP3_HR",
+                label: "CP3 \u2013 HR",
+                card: "border-orange-200 bg-orange-50",
+                pill: "text-orange-900 bg-white border-orange-200",
+              },
+              {
+                key: "CP4_ENFORCEMENT",
+                label: "CP4 \u2013 Enforcement",
+                card: "border-red-200 bg-red-50",
+                pill: "text-red-900 bg-white border-red-200",
+              },
+            ].map((lvl) => {
+              const count = Number.isFinite(checkpointStats?.levelCounts?.[lvl.key])
+                ? checkpointStats.levelCounts[lvl.key]
+                : 0;
+              const active = levelFilter === lvl.key;
+              return (
+                <button
+                  key={lvl.key}
+                  type="button"
+                  onClick={() => setLevelFilter((prev) => (prev === lvl.key ? null : lvl.key))}
+                  className={`text-left rounded-xl border p-4 shadow-sm hover:shadow transition ${lvl.card} ${
+                    active ? "ring-2 ring-blue-600" : ""
+                  }`}
+                  aria-pressed={active}
+                  aria-label={`Filter escalation table by ${lvl.label}`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-gray-900">{lvl.label}</div>
+                    <span className={`text-xs font-semibold border rounded-full px-2 py-0.5 ${lvl.pill}`}>
+                      {count}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-xs text-gray-600">
+                    {active ? "Click to clear filter" : "Click to filter table"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Filters */}
+          <div className="mt-4 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-700 font-medium" htmlFor="min-level-filter">
+                  Escalation Level
+                </label>
+                <select
+                  id="min-level-filter"
+                  value={minLevelFilter}
+                  onChange={(e) => setMinLevelFilter(e.target.value)}
+                  className="border rounded-md px-3 py-2 text-sm text-gray-800 bg-white shadow-sm"
+                  aria-label="Filter by minimum escalation level"
+                >
+                  <option value="CP0">CP0+</option>
+                  <option value="CP1">CP1+</option>
+                  <option value="CP2">CP2+</option>
+                  <option value="CP3">CP3+</option>
+                  <option value="CP4">CP4 only</option>
+                </select>
+              </div>
+
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={actionDueOnly}
+                  onChange={(e) => setActionDueOnly(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                Action Due Now
+              </label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-700 font-medium" htmlFor="search-filter">
+                Search
+              </label>
+              <input
+                id="search-filter"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Name or email"
+                className="border rounded-md px-3 py-2 text-sm text-gray-800 bg-white shadow-sm w-full lg:w-80"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-auto border rounded-lg">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-gray-700">
+                <tr>
+                  <th className="text-left p-3 font-semibold">Escalation Level</th>
+                  <th className="text-left p-3 font-semibold">Action Guidance</th>
+                  <th className="text-left p-3 font-semibold">Name</th>
+                  <th className="text-left p-3 font-semibold">Email</th>
+                  <th className="text-left p-3 font-semibold">Session Title</th>
+                  <th className="text-left p-3 font-semibold">Sent Date</th>
+                  <th className="text-left p-3 font-semibold">Consecutive Checkpoints</th>
+                  <th className="text-left p-3 font-semibold">First Checkpoint Seen</th>
+                  <th className="text-left p-3 font-semibold">Next Escalation Date</th>
+                  <th className="text-left p-3 font-semibold">Action Due Now</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {loadingCheckpoints ? (
+                  <tr>
+                    <td className="p-3 text-gray-500" colSpan={9}>
+                      Loading escalation queue...
+                    </td>
+                  </tr>
+                ) : Array.isArray(checkpointStats?.users) && checkpointStats.users.length ? (
+                  [...checkpointStats.users]
+                    .filter((u) => {
+                      const lvl = u?.escalationLevel || "";
+                      const rank = (v) => {
+                        switch (v) {
+                          case "CP4_ENFORCEMENT":
+                            return 4;
+                          case "CP3_HR":
+                            return 3;
+                          case "CP2_SUPPORT":
+                            return 2;
+                          case "CP1_AWARENESS":
+                            return 1;
+                          case "CP0_GRACE":
+                            return 0;
+                          default:
+                            return -1;
+                        }
+                      };
+                      const minRank =
+                        minLevelFilter === "CP4"
+                          ? 4
+                          : minLevelFilter === "CP3"
+                            ? 3
+                            : minLevelFilter === "CP2"
+                              ? 2
+                              : minLevelFilter === "CP1"
+                                ? 1
+                                : 0;
+
+                      // Default: hide CP0 unless user explicitly selects CP0+.
+                      if (!levelFilter && minRank >= 1 && lvl === "CP0_GRACE") return false;
+
+                      if (levelFilter && lvl !== levelFilter) return false;
+
+                      if (minLevelFilter === "CP4") {
+                        if (lvl !== "CP4_ENFORCEMENT") return false;
+                      } else if (rank(lvl) < minRank) {
+                        return false;
+                      }
+
+                      if (actionDueOnly && !u?.actionDueNow) return false;
+
+                      const q = (searchQuery || "").trim().toLowerCase();
+                      if (q) {
+                        const name = (u?.name || "").toLowerCase();
+                        const email = (u?.email || "").toLowerCase();
+                        if (!name.includes(q) && !email.includes(q)) return false;
+                      }
+
+                      return true;
+                    })
+                    .sort((a, b) => {
+                      const rank = (lvl) => {
+                        switch (lvl) {
+                          case "CP4_ENFORCEMENT":
+                            return 4;
+                          case "CP3_HR":
+                            return 3;
+                          case "CP2_SUPPORT":
+                            return 2;
+                          case "CP1_AWARENESS":
+                            return 1;
+                          case "CP0_GRACE":
+                            return 0;
+                          default:
+                            return -1;
+                        }
+                      };
+                      const ar = rank(a?.escalationLevel);
+                      const br = rank(b?.escalationLevel);
+                      if (ar !== br) return br - ar; // severity desc
+
+                      const ad = a?.actionDueNow ? 1 : 0;
+                      const bd = b?.actionDueNow ? 1 : 0;
+                      if (ad !== bd) return bd - ad; // due now first
+
+                      const ac = Number.isFinite(a?.consecutiveCheckpointCount) ? a.consecutiveCheckpointCount : 0;
+                      const bc = Number.isFinite(b?.consecutiveCheckpointCount) ? b.consecutiveCheckpointCount : 0;
+                      return bc - ac;
+                    })
+                    .map((u, idx) => (
+                      <tr
+                        key={`${u.email || "no-email"}-${u.sentDate || idx}-${idx}`}
+                        className={u.actionDueNow ? "bg-amber-50" : "bg-white"}
+                      >
+                        <td className="p-3 whitespace-nowrap font-semibold">{u.escalationLevel || "-"}</td>
+                        <td className="p-3 min-w-[220px] text-gray-700">
+                          {u.escalationLevel === "CP1_AWARENESS"
+                            ? "Notify user, add focus time"
+                            : u.escalationLevel === "CP2_SUPPORT"
+                              ? "Schedule 15-minute 1:1"
+                              : u.escalationLevel === "CP3_HR"
+                                ? "HR warning, manager CC"
+                                : u.escalationLevel === "CP4_ENFORCEMENT"
+                                  ? "Access restriction"
+                                  : "-"}
+                        </td>
+                        <td className="p-3 whitespace-nowrap">{u.name || "Unknown"}</td>
+                        <td className="p-3 whitespace-nowrap">{u.email || "-"}</td>
+                        <td className="p-3 min-w-[280px]">{u.sessionTitle || "-"}</td>
+                        <td className="p-3 whitespace-nowrap">{u.sentDate || "-"}</td>
+                        <td className="p-3 whitespace-nowrap">{u.consecutiveCheckpointCount ?? 0}</td>
+                        <td className="p-3 whitespace-nowrap">{u.firstCheckpointSeen || "-"}</td>
+                        <td className="p-3 whitespace-nowrap">{u.nextEscalationCheckpoint || "-"}</td>
+                        <td className="p-3 whitespace-nowrap">{u.actionDueNow ? "Yes" : "No"}</td>
+                      </tr>
+                    ))
+                ) : (
+                  <tr>
+                    <td className="p-3 text-gray-500" colSpan={9}>
+                      No eligible (2026) escalation rows for this checkpoint.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* MAIN CONTENT */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {/* High Risk Panel */}
@@ -651,6 +1024,18 @@ export default function SlideDeckVisualizer() {
                 }`}
               >
                 <List size={16} /> Summary
+              </button>
+              <button
+                onClick={() => setViewMode("escalations")}
+                aria-pressed={viewMode === "escalations"}
+                aria-label="Show escalation table view"
+                className={`px-3 py-2 rounded-lg ${
+                  viewMode === "escalations"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                <AlertCircle size={16} /> Escalations
               </button>
             </div>
 
@@ -723,6 +1108,73 @@ export default function SlideDeckVisualizer() {
                 </p>
               </div>
             )}
+
+            {viewMode === "escalations" && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold">Escalation Queue</h3>
+                  <button
+                    onClick={() => loadEscalations(selectedWeek)}
+                    className="text-sm px-3 py-2 rounded-md border bg-gray-50 text-gray-700 hover:bg-gray-100"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                {escalationsError && (
+                  <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                    {escalationsError}
+                  </div>
+                )}
+
+                {loadingEscalations ? (
+                  <div className="text-sm text-gray-500">Loading escalation rows...</div>
+                ) : (
+                  <div className="overflow-auto border rounded-lg">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50 text-gray-700">
+                        <tr>
+                          <th className="text-left p-3 font-semibold">Name</th>
+                          <th className="text-left p-3 font-semibold">Email</th>
+                          <th className="text-left p-3 font-semibold">Session</th>
+                          <th className="text-left p-3 font-semibold">Sent</th>
+                          <th className="text-left p-3 font-semibold">First CP</th>
+                          <th className="text-left p-3 font-semibold">Consecutive</th>
+                          <th className="text-left p-3 font-semibold">Level</th>
+                          <th className="text-left p-3 font-semibold">Next CP</th>
+                          <th className="text-left p-3 font-semibold">Due Now</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {escalationRows.map((r, idx) => (
+                          <tr
+                            key={`${r.email || "no-email"}-${r.sessionId || idx}`}
+                            className={r.actionDueNow ? "bg-amber-50" : "bg-white"}
+                          >
+                            <td className="p-3 whitespace-nowrap">{r.name || "Unknown"}</td>
+                            <td className="p-3 whitespace-nowrap">{r.email || "-"}</td>
+                            <td className="p-3 min-w-[280px]">{r.sessionTitle || "-"}</td>
+                            <td className="p-3 whitespace-nowrap">{r.sentDate || "-"}</td>
+                            <td className="p-3 whitespace-nowrap">{r.firstCheckpointSeen || "-"}</td>
+                            <td className="p-3 whitespace-nowrap">{r.consecutiveCheckpointCount ?? 0}</td>
+                            <td className="p-3 whitespace-nowrap">{r.escalationLevel || "-"}</td>
+                            <td className="p-3 whitespace-nowrap">{r.nextEscalationCheckpoint || "-"}</td>
+                            <td className="p-3 whitespace-nowrap">{r.actionDueNow ? "Yes" : "No"}</td>
+                          </tr>
+                        ))}
+                        {escalationRows.length === 0 && (
+                          <tr>
+                            <td className="p-3 text-gray-500" colSpan={9}>
+                              No eligible (2026) escalation rows for this week.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Roulette Panel */}
@@ -790,6 +1242,7 @@ export default function SlideDeckVisualizer() {
         <UserModal
           userName={selectedUser}
           sessions={selectedSessions}
+          legacySessions={selectedLegacySessions}
           checkpointDate={snapshot?.checkpointDate ?? null}
           checkpointOrdinal={snapshot?.checkpointOrdinal ?? null}
           weekId={snapshot?.weekId ?? null}
@@ -801,7 +1254,7 @@ export default function SlideDeckVisualizer() {
 }
 
 /* ---------- Modal Component ---------- */
-function UserModal({ userName, sessions, checkpointDate, checkpointOrdinal, weekId, onClose }) {
+function UserModal({ userName, sessions, legacySessions, checkpointDate, checkpointOrdinal, weekId, onClose }) {
   if (!userName) return null;
 
   const headingId = "user-modal-title";
@@ -809,6 +1262,16 @@ function UserModal({ userName, sessions, checkpointDate, checkpointOrdinal, week
     checkpointDate
       ? `Checkpoint (Toronto): ${checkpointDate}${checkpointOrdinal ? ` (#${checkpointOrdinal})` : ""}`
       : null;
+
+  const escalationLabel = (sentDate) => {
+    const d = new Date(sentDate);
+    if (Number.isNaN(d.getTime())) return null;
+    if (d.getFullYear() !== 2026) return null;
+    const count = Number.isFinite(checkpointOrdinal) ? checkpointOrdinal : null;
+    if (!count) return null;
+    // This is a placeholder label until we wire per-session derived counts from /api/escalations into the UI.
+    return `Eligible (2026)`;
+  };
 
   return (
     <div
@@ -845,14 +1308,24 @@ function UserModal({ userName, sessions, checkpointDate, checkpointOrdinal, week
 
         {/* Session list */}
         <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-2">
+          {Array.isArray(legacySessions) && legacySessions.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Showing {legacySessions.length} legacy session(s) from 2025. These do not count toward checkpoints or escalation.
+            </div>
+          )}
           {sessions.map((s, i) => (
             <div
               key={i}
               className="p-4 rounded-lg border border-gray-300 bg-gray-50 hover:bg-gray-100 transition shadow-sm text-gray-900"
             >
-              <p className="font-semibold text-gray-900 mb-1">
-                {s.title}
-              </p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-semibold text-gray-900 mb-1">{s.title}</p>
+                {escalationLabel(s.sentDate) && (
+                  <span className="text-xs font-semibold text-sky-900 border border-sky-200 bg-sky-50 rounded-full px-2 py-0.5">
+                    {escalationLabel(s.sentDate)}
+                  </span>
+                )}
+              </div>
 
               <p className="text-sm text-gray-700">
                 <span className="font-medium">Status:</span> {s.status}
@@ -868,6 +1341,34 @@ function UserModal({ userName, sessions, checkpointDate, checkpointOrdinal, week
               </p>
             </div>
           ))}
+
+          {Array.isArray(legacySessions) &&
+            legacySessions.map((s, i) => (
+              <div
+                key={`legacy-${i}`}
+                className="p-4 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 transition shadow-sm text-gray-900"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-gray-900 mb-1">{s.title}</p>
+                  <span className="text-xs font-semibold text-amber-900 border border-amber-300 bg-white rounded-full px-2 py-0.5">
+                    Legacy (2025)
+                  </span>
+                </div>
+
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Status:</span> {s.status}
+                </p>
+
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Sent:</span> {s.sentDate}
+                </p>
+
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Pending:</span>{" "}
+                  {pendingDays(s.sentDate)} days
+                </p>
+              </div>
+            ))}
         </div>
       </div>
     </div>
