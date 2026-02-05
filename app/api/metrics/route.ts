@@ -19,28 +19,34 @@ function normalizeNameKey(name: unknown): string {
 }
 
 function buildCountsByEmail(snapshot: any): Record<string, { email: string; name: string; count: number }> {
-  const rows = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
-  return rows.reduce<Record<string, { email: string; name: string; count: number }>>((acc, row) => {
-    const email = normalizeEmail(row?.email);
+  const rows: unknown[] = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
+  return rows.reduce(
+    (acc: Record<string, { email: string; name: string; count: number }>, row: any) => {
+      const email = normalizeEmail(row?.email);
     if (!email) return acc;
     const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
     acc[email] = acc[email] ?? { email, name, count: 0 };
     acc[email].count += 1;
     if (!acc[email].name && name) acc[email].name = name;
     return acc;
-  }, {});
+    },
+    {}
+  );
 }
 
 function buildCountsByNameKey(snapshot: any): Record<string, { key: string; name: string; count: number }> {
-  const rows = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
-  return rows.reduce<Record<string, { key: string; name: string; count: number }>>((acc, row) => {
-    const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
+  const rows: unknown[] = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
+  return rows.reduce(
+    (acc: Record<string, { key: string; name: string; count: number }>, row: any) => {
+      const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
     const key = normalizeNameKey(name);
     if (!key) return acc;
     acc[key] = acc[key] ?? { key, name, count: 0 };
     acc[key].count += 1;
     return acc;
-  }, {});
+    },
+    {}
+  );
 }
 
 export async function GET(request: Request) {
