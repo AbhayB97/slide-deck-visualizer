@@ -1,8 +1,47 @@
 import { NextResponse } from "next/server";
-import { fetchLatestSnapshot } from "@/lib/snapshots";
-import { fetchWeekMetrics, saveWeekMetrics, type WeekMetrics } from "@/lib/metrics";
+import { fetchLatestSnapshot, fetchSnapshotByWeek } from "@/lib/snapshots";
+import { fetchWeekMetrics, findPrevWeekId, saveWeekMetrics, type WeekMetrics } from "@/lib/metrics";
 
 export const runtime = "nodejs";
+
+function normalizeEmail(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.trim().toLowerCase();
+}
+
+function normalizeNameKey(name: unknown): string {
+  if (typeof name !== "string") return "";
+  return name
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.,]/g, "")
+    .toLowerCase();
+}
+
+function buildCountsByEmail(snapshot: any): Record<string, { email: string; name: string; count: number }> {
+  const rows = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
+  return rows.reduce<Record<string, { email: string; name: string; count: number }>>((acc, row) => {
+    const email = normalizeEmail(row?.email);
+    if (!email) return acc;
+    const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
+    acc[email] = acc[email] ?? { email, name, count: 0 };
+    acc[email].count += 1;
+    if (!acc[email].name && name) acc[email].name = name;
+    return acc;
+  }, {});
+}
+
+function buildCountsByNameKey(snapshot: any): Record<string, { key: string; name: string; count: number }> {
+  const rows = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
+  return rows.reduce<Record<string, { key: string; name: string; count: number }>>((acc, row) => {
+    const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
+    const key = normalizeNameKey(name);
+    if (!key) return acc;
+    acc[key] = acc[key] ?? { key, name, count: 0 };
+    acc[key].count += 1;
+    return acc;
+  }, {});
+}
 
 export async function GET(request: Request) {
   try {
@@ -27,12 +66,63 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, metrics });
     }
 
-    const metrics = await fetchWeekMetrics(weekId);
+    let metrics = await fetchWeekMetrics(weekId);
     if (!metrics) {
-      return NextResponse.json(
-        { success: false, error: "Metrics not found" },
-        { status: 404 }
-      );
+      // Generate metrics on-demand if missing (handles weeks processed before metrics existed).
+      const current = await fetchSnapshotByWeek(weekId);
+      if (!current) {
+        return NextResponse.json(
+          { success: false, error: "Snapshot not found" },
+          { status: 404 }
+        );
+      }
+
+      const prevWeekId = await findPrevWeekId(weekId);
+      const prev = prevWeekId ? await fetchSnapshotByWeek(prevWeekId) : null;
+
+      const currentEmailCounts = buildCountsByEmail(current);
+      const hasEmails = Object.keys(currentEmailCounts).length > 0;
+
+      if (hasEmails) {
+        const prevEmailCounts = prev ? buildCountsByEmail(prev) : {};
+        metrics = await saveWeekMetrics({
+          weekId,
+          prevWeekId,
+          generatedAt: new Date().toISOString(),
+          users: Object.values(currentEmailCounts)
+            .map((u) => ({
+              weekId,
+              prevWeekId,
+              email: u.email,
+              name: u.name,
+              incompleteCount: u.count,
+              deltaFromPrevWeek: u.count - (prevEmailCounts[u.email]?.count ?? 0),
+            }))
+            .sort(
+              (a, b) => b.incompleteCount - a.incompleteCount || a.name.localeCompare(b.name)
+            ),
+        } satisfies WeekMetrics);
+      } else {
+        const currentNameCounts = buildCountsByNameKey(current);
+        const prevNameCounts = prev ? buildCountsByNameKey(prev) : {};
+        metrics = await saveWeekMetrics({
+          weekId,
+          prevWeekId,
+          generatedAt: new Date().toISOString(),
+          users: Object.values(currentNameCounts)
+            .map((u) => ({
+              weekId,
+              prevWeekId,
+              email: "",
+              name: u.name,
+              incompleteCount: u.count,
+              deltaFromPrevWeek: u.count - (prevNameCounts[u.key]?.count ?? 0),
+            }))
+            .sort(
+              (a, b) => b.incompleteCount - a.incompleteCount || a.name.localeCompare(b.name)
+            ),
+        } satisfies WeekMetrics);
+      }
     }
 
     return NextResponse.json({ success: true, metrics });
@@ -44,4 +134,3 @@ export async function GET(request: Request) {
     );
   }
 }
-

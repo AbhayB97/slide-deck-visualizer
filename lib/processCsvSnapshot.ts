@@ -4,6 +4,8 @@ import { getCsv, SNAPSHOT_PATH } from '@/lib/storage';
 import { buildSnapshotPath, getIsoWeekId, upsertHistoryEntry } from '@/lib/history';
 import { findPrevWeekId, saveWeekMetrics, type WeekMetrics } from '@/lib/metrics';
 import { fetchSnapshotByWeek } from '@/lib/snapshots';
+import { getCheckpointInfo } from "@/lib/checkpoints";
+import { upsertCheckpointFromSnapshot } from "@/lib/checkpointHistory";
 
 export type ParsedRow = {
   email: string;
@@ -20,6 +22,9 @@ export type Snapshot = {
   snapshotUrl: string;
   uploadedAt: string;
   weekId: string;
+  checkpointId?: string;
+  checkpointDate?: string;
+  checkpointOrdinal?: number;
   offenderCount: number;
   offenderList: string[];
   highRiskEmails: string[];
@@ -132,6 +137,7 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
   const parsedRows = buildParsedRows(rows, mapping);
   const uploadedAt = new Date();
   const weekId = getIsoWeekId(uploadedAt);
+  const checkpoint = getCheckpointInfo(uploadedAt);
 
   const offenderList = Array.from(
     new Set(parsedRows.map((row) => row.fullName).filter(Boolean))
@@ -164,6 +170,9 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
     snapshotUrl: '', // populated after upload
     uploadedAt: uploadedAt.toISOString(),
     weekId,
+    checkpointId: checkpoint?.checkpointId,
+    checkpointDate: checkpoint?.checkpointDate,
+    checkpointOrdinal: checkpoint?.checkpointOrdinal,
     offenderCount: offenderList.length,
     offenderList,
     highRiskEmails,
@@ -236,6 +245,9 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
       .sort((a, b) => b.incompleteCount - a.incompleteCount || a.name.localeCompare(b.name)),
   };
   await saveWeekMetrics(metrics);
+
+  // Persist a per-checkpoint view of "who is on the list" (checkpoint is anchored to Thursdays).
+  await upsertCheckpointFromSnapshot(payload);
 
   return {
     ...payload,
