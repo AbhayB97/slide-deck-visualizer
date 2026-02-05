@@ -175,3 +175,18 @@ export function getCheckpointInfo(date: Date = new Date()): CheckpointInfo | nul
 
   return { checkpointId, checkpointDate, checkpointOrdinal };
 }
+
+export function getProgramStartCheckpointDate(): string {
+  const forceEnabled = String(process.env.CHECKPOINTS_FORCE_ENABLED || "").toLowerCase() === "true";
+  const start = new Date(forceEnabled ? TEST_START_DATE : CUTOFF_DATE);
+  if (Number.isNaN(start.getTime())) {
+    throw new Error(`Invalid start date for program: ${forceEnabled ? TEST_START_DATE : CUTOFF_DATE}`);
+  }
+  const local = getCivilDateTimeInTimeZone(start, TIMEZONE);
+  // The program start checkpoint is the Thursday of the start week (next-or-same Thursday).
+  const localDate: CivilDate = { year: local.year, month: local.month, day: local.day };
+  const dow = dayOfWeek(localDate);
+  const toThursday = (CHECKPOINT_WEEKDAY - dow + 7) % 7;
+  const thursday = addDays(localDate, toThursday);
+  return formatIsoDateOnly(thursday);
+}

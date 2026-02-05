@@ -1,5 +1,6 @@
 import type { CheckpointRecord } from "@/lib/checkpointHistory";
 
+// Kept for back-compat: per-session endpoint still uses this type.
 export type EscalationLevel =
   | "DEFCON_1"
   | "DEFCON_2"

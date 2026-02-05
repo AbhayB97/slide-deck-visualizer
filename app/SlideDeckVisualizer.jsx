@@ -731,6 +731,14 @@ export default function SlideDeckVisualizer() {
                     ? "Loading..."
                     : "N/A"}
               </span>
+              {checkpointStats?.programStartCheckpoint && (
+                <>
+                  <span className="text-gray-300">|</span>
+                  <span className="text-gray-600">
+                    Program start: {checkpointStats.programStartCheckpoint}
+                  </span>
+                </>
+              )}
               <span className="text-gray-300">|</span>
               <span>Scope: {checkpointStats?.scope || "2026 sessions only"}</span>
             </div>

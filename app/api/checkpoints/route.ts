@@ -6,11 +6,11 @@ import {
 } from "@/lib/checkpointHistory";
 import { fetchHistoryIndex } from "@/lib/history";
 import { fetchLatestSnapshot, fetchSnapshotByWeek } from "@/lib/snapshots";
-import { getCheckpointInfo } from "@/lib/checkpoints";
-import { buildSessionKey, deriveEscalationStateForSession, escalationLevelFromCount } from "@/lib/escalation";
+import { getCheckpointInfo, getProgramStartCheckpointDate } from "@/lib/checkpoints";
 import type { CheckpointRecord } from "@/lib/checkpointHistory";
 import { getScopeLabel, isSentDateInScope } from "@/lib/scope";
 import { fetchMasterUsers } from "@/lib/lists";
+import { actionDueNow, deriveUserDefconAtCheckpoint, findNextEscalationDate, type DefconLevel } from "@/lib/defcon";
 
 export const runtime = "nodejs";
 
@@ -111,44 +111,61 @@ export async function GET() {
       DEFCON_6: 0,
     };
 
-    const users = eligibleRows.map((r: any) => {
-      const name = typeof r?.fullName === "string" ? r.fullName.trim() : "";
+    // Build one row per user, severity based on checkpoint-age of the oldest incomplete session,
+    // with a volume/average-age influence (composite score).
+    const sessionsByEmail = new Map<
+      string,
+      { name: string; sessions: { sentDate: string; title: string }[] }
+    >();
+    for (const r of eligibleRows) {
       const email = normalizeEmail(r?.email);
-      const sessionTitle = typeof r?.title === "string" ? r.title.trim() : "";
+      if (!email) continue;
+      const name = typeof r?.fullName === "string" ? r.fullName.trim() : "";
+      const title = typeof r?.title === "string" ? r.title.trim() : "";
       const sentDate = typeof r?.sentDate === "string" ? r.sentDate.trim() : "";
-      const sessionId = buildSessionKey(sentDate, sessionTitle);
+      if (!title || !sentDate) continue;
+      const entry = sessionsByEmail.get(email) ?? { name, sessions: [] };
+      if (!entry.name && name) entry.name = name;
+      entry.sessions.push({ sentDate, title });
+      sessionsByEmail.set(email, entry);
+    }
 
-      const derived =
-        email && sessionId
-          ? deriveEscalationStateForSession({
-              recordsAsc,
-              email,
-              sessionKey: sessionId,
-              currentCheckpointId: current.checkpointId,
-            })
-          : null;
+    const users = Array.from(sessionsByEmail.entries()).map(([email, info]) => {
+      const derived = deriveUserDefconAtCheckpoint({
+        recordsAsc,
+        email,
+        currentCheckpointId: current.checkpointId,
+      });
 
-      const consecutiveCheckpointCount = derived?.consecutiveCheckpointCount ?? 0;
-      const escalationLevel =
-        derived?.escalationLevel ?? escalationLevelFromCount(consecutiveCheckpointCount);
-      const nextEscalationCheckpoint =
-        consecutiveCheckpointCount > 0 && consecutiveCheckpointCount < 5
-          ? addDaysIsoDateOnly(current.checkpointDate, 7) ?? ""
-          : "";
-      const actionDueNow = Boolean(consecutiveCheckpointCount > 0 && consecutiveCheckpointCount <= 5);
+      const oldestSessionId = derived?.oldestSessionId ?? "";
+      const [sentDatePart, titlePart] = oldestSessionId.includes("::")
+        ? oldestSessionId.split("::")
+        : ["", ""];
 
+      // Previous checkpoint defcon (for actionDueNow)
+      const currentIdx = recordsAsc.findIndex((r) => r.checkpointId === current.checkpointId);
+      const prevId = currentIdx > 0 ? recordsAsc[currentIdx - 1]?.checkpointId : null;
+      const prev = prevId
+        ? deriveUserDefconAtCheckpoint({
+            recordsAsc,
+            email,
+            currentCheckpointId: prevId,
+          })
+        : null;
+
+      const escalationLevel: DefconLevel = derived?.defcon ?? "DEFCON_6";
       levelCounts[escalationLevel] = (levelCounts[escalationLevel] ?? 0) + 1;
 
       return {
-        name,
+        name: info.name || "",
         email,
-        sessionTitle,
-        sentDate,
+        sessionTitle: titlePart || "(oldest incomplete session)",
+        sentDate: sentDatePart || "",
         escalationLevel,
-        consecutiveCheckpointCount,
+        consecutiveCheckpointCount: derived?.oldestSessionConsecutiveCheckpoints ?? 0,
         firstCheckpointSeen: derived?.firstCheckpointSeen ?? "",
-        nextEscalationCheckpoint,
-        actionDueNow,
+        nextEscalationCheckpoint: derived ? findNextEscalationDate({ currentCheckpointDate: current.checkpointDate, currentState: derived }) : "",
+        actionDueNow: actionDueNow({ current: escalationLevel, previous: prev?.defcon ?? null }),
       };
     });
 
@@ -161,6 +178,7 @@ export async function GET() {
     levelCounts.DEFCON_6 = defcon6Count;
 
     return NextResponse.json({
+      programStartCheckpoint: getProgramStartCheckpointDate(),
       currentCheckpoint: current.checkpointDate,
       scope: getScopeLabel(),
       users,
