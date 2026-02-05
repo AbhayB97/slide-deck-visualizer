@@ -126,9 +126,12 @@ export function getCheckpointInfo(date: Date = new Date()): CheckpointInfo | nul
   }
 
   // Guardrail: no checkpoints in prod before cutover.
-  if (date.getTime() < cutoff.getTime()) {
+  const forceEnabled = String(process.env.CHECKPOINTS_FORCE_ENABLED || "").toLowerCase() === "true";
+  if (!forceEnabled && date.getTime() < cutoff.getTime()) {
     return null;
   }
+  // In test mode, treat "now" as the effective cutoff so we can exercise the model without retroactive escalation.
+  const effectiveCutoff = forceEnabled && date.getTime() < cutoff.getTime() ? date : cutoff;
 
   const localNow = getCivilDateTimeInTimeZone(date, TIMEZONE);
   const localDate: CivilDate = { year: localNow.year, month: localNow.month, day: localNow.day };
@@ -153,7 +156,7 @@ export function getCheckpointInfo(date: Date = new Date()): CheckpointInfo | nul
   const checkpointCivilDate = date.getTime() < candidateUtc.getTime() ? addDays(thursday, -7) : thursday;
 
   // Ordinal: weeks since the first checkpoint at/after cutoff.
-  const cutoffLocal = getCivilDateTimeInTimeZone(cutoff, TIMEZONE);
+  const cutoffLocal = getCivilDateTimeInTimeZone(effectiveCutoff, TIMEZONE);
   const firstCheckpointDate: CivilDate = { year: cutoffLocal.year, month: cutoffLocal.month, day: cutoffLocal.day };
   const daysSinceFirst = toJdn(checkpointCivilDate) - toJdn(firstCheckpointDate);
   const weeksSinceFirst = Math.floor(daysSinceFirst / 7);
