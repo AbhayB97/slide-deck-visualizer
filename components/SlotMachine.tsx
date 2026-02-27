@@ -79,40 +79,60 @@ export function SlotMachine() {
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const autoStopRef = useRef<NodeJS.Timeout | null>(null);
+  const celebrateTimerRef = useRef<NodeJS.Timeout | null>(null);
   const currentDelayRef = useRef(BASE_DELAY);
   const slowingRef = useRef(false);
   const spinningRef = useRef(false);
   const namesRef = useRef<string[]>([]);
+  const eligibleUsersRef = useRef<string[]>([]);
+  const mountedRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const drumOscRef = useRef<OscillatorNode | null>(null);
   const drumGainRef = useRef<GainNode | null>(null);
 
   async function loadEligible() {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/api/current-lists");
+      const res = await fetch("/api/current-lists", { signal: controller.signal });
       const json: ListsResponse = await res.json();
       if (!res.ok || !json.success) {
         throw new Error(json.error || "Failed to load lists");
       }
       const users = json.rouletteUsers || [];
+      if (!mountedRef.current) return;
       setEligibleUsers(users);
+      eligibleUsersRef.current = users;
       setNames(buildReel(users));
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
+      if (!mountedRef.current) return;
       setError(err?.message || "Failed to load lists");
       setEligibleUsers([]);
+      eligibleUsersRef.current = [];
       setNames([]);
     } finally {
+      if (!mountedRef.current) return;
       setLoading(false);
     }
   }
 
   useEffect(() => {
+    mountedRef.current = true;
     loadEligible();
     return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
       clearTimer();
       clearAutoStop();
+      if (celebrateTimerRef.current) {
+        clearTimeout(celebrateTimerRef.current);
+        celebrateTimerRef.current = null;
+      }
       stopDrumroll(true);
     };
   }, []);
@@ -120,6 +140,10 @@ export function SlotMachine() {
   useEffect(() => {
     namesRef.current = names;
   }, [names]);
+
+  useEffect(() => {
+    eligibleUsersRef.current = eligibleUsers;
+  }, [eligibleUsers]);
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -136,6 +160,7 @@ export function SlotMachine() {
   };
 
   const tick = () => {
+    const users = eligibleUsersRef.current;
     let nextDelay = currentDelayRef.current;
 
     if (slowingRef.current) {
@@ -143,9 +168,9 @@ export function SlotMachine() {
       nextDelay = Math.min(nextDelay + 30, 320);
       // When slow enough, stop on the current center name
       if (nextDelay >= 300) {
-        const finalWinner = namesRef.current[CENTER_INDEX] || randomOf(eligibleUsers);
+        const finalWinner = namesRef.current[CENTER_INDEX] || randomOf(users);
         clearTimer();
-        setNames(buildReel(eligibleUsers, finalWinner));
+        setNames(buildReel(users, finalWinner));
         setSpinning(false);
         spinningRef.current = false;
         setSlowing(false);
@@ -153,7 +178,11 @@ export function SlotMachine() {
         setWinner(finalWinner || null);
         stopDrumroll();
         setCelebrate(true);
-        setTimeout(() => setCelebrate(false), 1200);
+        if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current);
+        celebrateTimerRef.current = setTimeout(() => {
+          setCelebrate(false);
+          celebrateTimerRef.current = null;
+        }, 1200);
         currentDelayRef.current = BASE_DELAY;
         return;
       }
@@ -162,7 +191,7 @@ export function SlotMachine() {
     setNames((prev) => {
       const next = [...prev];
       next.shift();
-      next.push(randomOf(eligibleUsers, next[next.length - 1]));
+      next.push(randomOf(users, next[next.length - 1]));
       return next;
     });
 

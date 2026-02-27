@@ -8,7 +8,6 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
-import { RotateCw } from "lucide-react";
 
 const NO_SNAPSHOT_MESSAGE =
   "No snapshot available. Ask the admin to upload this week's CSV.";
@@ -111,10 +110,6 @@ export default function SlideDeckVisualizer() {
 
   const [viewMode, setViewMode] = useState("grid");
   const [selectedUser, setSelectedUser] = useState(null);
-  const [rouletteUsers, setRouletteUsers] = useState([]);
-  const [spinResult, setSpinResult] = useState(null);
-  const [spinning, setSpinning] = useState(false);
-  const [listsError, setListsError] = useState(null);
   const [masterCount, setMasterCount] = useState(0);
 
   const handleTileKeyDown = (event, name) => {
@@ -337,20 +332,13 @@ export default function SlideDeckVisualizer() {
 
   async function loadLists() {
     try {
-      setListsError(null);
       const res = await fetch("/api/current-lists");
       const json = await res.json();
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || "Failed to load lists");
       }
-      const users = Array.isArray(json?.rouletteUsers)
-        ? json.rouletteUsers.filter(Boolean)
-        : [];
-      setRouletteUsers(users);
       setMasterCount(Number.isFinite(json?.masterCount) ? json.masterCount : 0);
     } catch (err) {
-      setListsError(err.message);
-      setRouletteUsers([]);
       setMasterCount(0);
     }
   }
@@ -407,17 +395,6 @@ export default function SlideDeckVisualizer() {
     : null;
 
   const barColor = (v) => rampColor(v, minValue, maxValue);
-
-  const spinRoulette = () => {
-    if (!rouletteUsers.length) return;
-    setSpinning(true);
-    setSpinResult(null);
-    const winner = rouletteUsers[Math.floor(Math.random() * rouletteUsers.length)];
-    setTimeout(() => {
-      setSpinResult(winner);
-      setSpinning(false);
-    }, 1200);
-  };
 
   /* ---------- UI States ---------- */
   if (loadingSnapshot || loadingHistory) {
@@ -678,64 +655,20 @@ export default function SlideDeckVisualizer() {
             )}
           </div>
 
-          {/* Roulette Panel */}
-          <div className="bg-white p-6 rounded-2xl shadow-lg border flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Roulette Wheel</h2>
-                <p className="text-sm text-gray-600">
-                  Eligible: {rouletteUsers.length} people (not currently high risk)
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={loadLists}
-                  className="text-sm px-3 py-2 rounded-md border bg-gray-50 text-gray-700 hover:bg-gray-100"
-                >
-                  Refresh Lists
-                </button>
-                <Link
-                  href="/draw/slot-machine"
-                  className="text-sm px-3 py-2 rounded-md border bg-white text-gray-700 hover:bg-gray-50"
-                >
-                  Slot Machine
-                </Link>
-              </div>
+          {/* Draw */}
+          <div className="bg-white p-6 rounded-2xl shadow-lg border flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Weekly Draw</h2>
+              <p className="text-sm text-gray-600">
+                Use the Slot Machine to pick a random eligible user.
+              </p>
             </div>
-
-            {listsError && (
-              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                {listsError}
-              </div>
-            )}
-            <div className="flex flex-col items-center gap-4">
-              <div
-                className={`w-72 h-72 rounded-full border-4 border-gray-300 flex items-center justify-center relative ${
-                  spinning ? "animate-spin-slow" : ""
-                }`}
-                style={{ animationDuration: "1.2s" }}
-              >
-                <div className="text-center px-4">
-                  {spinResult ? (
-                    <p className="text-lg font-bold text-gray-900">{spinResult}</p>
-                  ) : rouletteUsers.length ? (
-                    <p className="text-sm text-gray-600">Tap spin to select a random user</p>
-                  ) : (
-                    <p className="text-sm text-gray-500">
-                      No eligible users this week. Everyone has pending training.
-                    </p>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={spinRoulette}
-                disabled={!rouletteUsers.length || spinning}
-                className="inline-flex items-center px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-              >
-                <RotateCw size={16} className="mr-2" />
-                {spinning ? "Spinning..." : "Spin"}
-              </button>
-            </div>
+            <Link
+              href="/draw/slot-machine"
+              className="text-sm px-4 py-2 rounded-md bg-emerald-600 text-white font-semibold shadow-sm hover:bg-emerald-700"
+            >
+              Go to Slot Machine
+            </Link>
           </div>
         </div>
 
