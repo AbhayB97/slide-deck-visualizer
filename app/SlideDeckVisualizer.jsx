@@ -523,13 +523,6 @@ export default function SlideDeckVisualizer() {
                 </select>
               </div>
               <Link
-                href="/leaderboard"
-                className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700 text-sm font-medium"
-                aria-label="View all-time leaderboard"
-              >
-                View Leaderboard
-              </Link>
-              <button
                 onClick={loadHistory}
                 aria-label="Refresh data"
                 className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700 hover:bg-gray-100"

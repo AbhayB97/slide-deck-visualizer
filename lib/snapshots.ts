@@ -73,20 +73,3 @@ export function buildHeatmapCounts(rows: ParsedRow[]) {
     return acc;
   }, {});
 }
-
-export function buildLeaderboardFromSnapshots(snapshots: Snapshot[]) {
-  const counts = snapshots.reduce<Record<string, number>>((acc, snapshot) => {
-    for (const row of snapshot.parsedRows ?? []) {
-      const name = (row.fullName ?? '').trim();
-      if (!name) continue;
-      const status = (row.status ?? '').toLowerCase();
-      if (status !== 'not started' && status !== 'in progress') continue;
-      acc[name] = (acc[name] ?? 0) + 1;
-    }
-    return acc;
-  }, {});
-
-  return Object.entries(counts)
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-}
