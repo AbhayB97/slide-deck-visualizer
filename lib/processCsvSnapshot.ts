@@ -66,8 +66,19 @@ function detectDelimiter(headerLine: string) {
 }
 
 function parseCsv(text: string): { headers: string[]; rows: Record<string, string>[] } {
-  const firstLine = text.split(/\r?\n/)[0] ?? '';
-  const delimiter = detectDelimiter(firstLine);
+  const headerLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? '';
+  const delimiter = detectDelimiter(headerLine);
+
+  const headers = ((parse(headerLine, {
+    bom: true,
+    delimiter,
+    relax_column_count: true,
+    skip_empty_lines: true,
+  }) as string[][])[0] ?? []).map((header) => (header ?? '').trim());
+
+  if (!headers.length || headers.every((header) => !header)) {
+    throw new Error('No headers detected in CSV');
+  }
 
   const rows = parse(text, {
     bom: true,
@@ -78,12 +89,7 @@ function parseCsv(text: string): { headers: string[]; rows: Record<string, strin
     info: false,
   }) as Record<string, string>[];
 
-  const headers = Object.keys(rows[0] ?? {});
-  if (!headers.length) {
-    throw new Error('No headers detected in CSV');
-  }
-
-  return { headers, rows };
+  return { headers: headers.filter(Boolean), rows };
 }
 
 function isIncomplete(status: string) {
