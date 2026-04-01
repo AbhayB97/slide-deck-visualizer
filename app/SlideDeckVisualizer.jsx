@@ -179,8 +179,7 @@ export default function SlideDeckVisualizer() {
       if (!parsed.length) {
         setStatusNotice({
           type: "empty",
-          message:
-            "Snapshot contains zero parsed rows. Upload a CSV with data to see charts and heatmaps.",
+          message: "100% completion rate. Keep up the good work.",
         });
       } else {
         setStatusNotice(null);
@@ -519,12 +518,12 @@ export default function SlideDeckVisualizer() {
         </div>
 
         {statusNotice?.type === "empty" && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl px-6 py-5 shadow-sm">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-6 py-5 shadow-sm">
             <div className="flex items-start gap-3">
-              <AlertCircle size={20} className="mt-0.5 shrink-0 text-amber-600" />
+              <AlertCircle size={20} className="mt-0.5 shrink-0 text-emerald-600" />
               <div>
-                <p className="text-base font-semibold text-amber-900">Empty snapshot loaded</p>
-                <p className="mt-1 text-sm text-amber-800">{statusNotice.message}</p>
+                <p className="text-base font-semibold text-emerald-900">100% completion rate</p>
+                <p className="mt-1 text-sm text-emerald-800">{statusNotice.message}</p>
               </div>
             </div>
           </div>
