@@ -522,7 +522,8 @@ export default function SlideDeckVisualizer() {
                   ))}
                 </select>
               </div>
-              <Link
+              <button
+                type="button"
                 onClick={loadHistory}
                 aria-label="Refresh data"
                 className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700 hover:bg-gray-100"
