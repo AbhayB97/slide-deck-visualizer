@@ -43,6 +43,11 @@ const pendingDays = (sentDate) => {
   return Math.floor((Date.now() - sent.getTime()) / 86400000);
 };
 
+const toValidDate = (value) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+};
+
 const clamp01 = (value) => Math.min(1, Math.max(0, value));
 
 const hexToRgb = (hex) => {
@@ -393,6 +398,34 @@ export default function SlideDeckVisualizer() {
     [orderedWeeks]
   );
 
+  const perfectWeekStreak = useMemo(() => {
+    let streak = 0;
+    for (const week of orderedWeeks) {
+      const incomplete = Number(week?.totalIncomplete ?? week?.offenderCount ?? 0);
+      if (!Number.isFinite(incomplete) || incomplete !== 0) {
+        break;
+      }
+      streak += 1;
+    }
+    return streak;
+  }, [orderedWeeks]);
+
+  const latestPerfectWeek = useMemo(
+    () =>
+      orderedWeeks.find((week) => {
+        const incomplete = Number(week?.totalIncomplete ?? week?.offenderCount ?? 0);
+        return Number.isFinite(incomplete) && incomplete === 0;
+      }) ?? null,
+    [orderedWeeks]
+  );
+
+  const daysSinceLastPerfectWeek = useMemo(() => {
+    if (perfectWeekStreak > 0) return 0;
+    const uploadedAt = toValidDate(latestPerfectWeek?.uploadedAt ?? latestPerfectWeek?.uploaded);
+    if (!uploadedAt) return null;
+    return Math.max(0, Math.floor((Date.now() - uploadedAt.getTime()) / 86400000));
+  }, [latestPerfectWeek, perfectWeekStreak]);
+
   const uploadedLabel = snapshot?.uploadedAt
     ? new Date(snapshot.uploadedAt).toLocaleDateString(undefined, {
         year: "numeric",
@@ -475,8 +508,6 @@ export default function SlideDeckVisualizer() {
                 <span>Total Items: {totalTasks}</span>
                 <span className="mx-1 text-gray-300">|</span>
                 <span>Total People: {masterCount}</span>
-                <span className="mx-1 text-gray-300">|</span>
-                <span>Weeks with 100% completion rate: {perfectWeeksCount}</span>
                 {snapshot?.weekId && (
                   <>
                     <span className="mx-1 text-gray-300">|</span>
@@ -489,6 +520,28 @@ export default function SlideDeckVisualizer() {
             </div>
 
             <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 min-w-[220px]">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                  100% Completion Streak
+                </p>
+                <p className="mt-1 text-2xl font-bold text-emerald-900">{perfectWeekStreak}</p>
+              </div>
+              {perfectWeekStreak === 0 && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 min-w-[220px]">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">
+                    Days Since Last 100% Completion
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-rose-900">
+                    {daysSinceLastPerfectWeek ?? "--"}
+                  </p>
+                </div>
+              )}
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 min-w-[180px]">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                  Perfect Weeks Total
+                </p>
+                <p className="mt-1 text-2xl font-bold text-gray-900">{perfectWeeksCount}</p>
+              </div>
               <div className="flex items-center gap-2">
                 <label className="text-sm text-gray-600" htmlFor="week-select">
                   Week
