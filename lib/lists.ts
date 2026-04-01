@@ -89,12 +89,25 @@ export async function fetchHighRiskUsers(): Promise<string[]> {
 export async function fetchCurrentLists(): Promise<{
   highRiskUsers: string[];
   rouletteUsers: string[];
+  activeUsers: string[];
   masterCount: number;
 }> {
   const [masterUsers, highRiskRaw] = await Promise.all([fetchMasterUsers(), fetchHighRiskUsers()]);
+  const activeUsers = Array.from(
+    new Set(masterUsers.map((u) => u.name.trim()).filter(Boolean))
+  );
 
   const cleanedHighRisk = highRiskRaw.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean);
   const hasAnyEmail = cleanedHighRisk.some((x) => normalizeEmail(x).includes('@'));
+
+  if (!cleanedHighRisk.length) {
+    return {
+      highRiskUsers: [],
+      rouletteUsers: activeUsers,
+      activeUsers,
+      masterCount: masterUsers.length,
+    };
+  }
 
   if (!hasAnyEmail) {
     // Back-compat mode: old snapshots only contained names (offenderList). Subtract by name keys.
@@ -105,7 +118,8 @@ export async function fetchCurrentLists(): Promise<{
 
     return {
       highRiskUsers: cleanedHighRisk,
-      rouletteUsers: roulette,
+      rouletteUsers: Array.from(new Set(roulette.filter(Boolean))),
+      activeUsers,
       masterCount: masterUsers.length,
     };
   }
@@ -118,7 +132,8 @@ export async function fetchCurrentLists(): Promise<{
 
   return {
     highRiskUsers: Array.from(riskEmailSet),
-    rouletteUsers: roulette,
+    rouletteUsers: Array.from(new Set(roulette.filter(Boolean))),
+    activeUsers,
     masterCount: masterUsers.length,
   };
 }

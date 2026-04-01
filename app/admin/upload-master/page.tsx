@@ -6,6 +6,7 @@ import Link from "next/link";
 type UploadResponse = {
   success: boolean;
   fileUrl: string;
+  filePath: string;
   fileName: string;
   uploadedAt: string;
 };
@@ -105,7 +106,7 @@ export default function AdminUploadMasterPage() {
   };
 
   const handleProcess = async () => {
-    if (!uploadResult?.fileUrl) return;
+    if (!uploadResult?.filePath && !uploadResult?.fileUrl) return;
     if (!allMapped) {
       setError("Please map all fields before processing (full name or first + last).");
       return;
@@ -118,6 +119,7 @@ export default function AdminUploadMasterPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          filePath: uploadResult.filePath,
           fileUrl: uploadResult.fileUrl,
           mapping: {
             firstName: mapping.firstName || undefined,

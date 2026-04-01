@@ -6,11 +6,13 @@ export const runtime = 'nodejs';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const filePath = body?.filePath;
     const fileUrl = body?.fileUrl;
+    const fileRef = typeof filePath === 'string' && filePath ? filePath : fileUrl;
     const mapping = body?.mapping as Partial<MasterMapping> | undefined;
 
-    if (!fileUrl || typeof fileUrl !== 'string') {
-      return NextResponse.json({ success: false, error: 'fileUrl is required' }, { status: 400 });
+    if (!fileRef || typeof fileRef !== 'string') {
+      return NextResponse.json({ success: false, error: 'filePath or fileUrl is required' }, { status: 400 });
     }
 
     if (!mapping?.email) {
@@ -27,7 +29,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { names } = await processMasterCsv(fileUrl, mapping as MasterMapping);
+    const { names } = await processMasterCsv(fileRef, mapping as MasterMapping);
 
     return NextResponse.json({ success: true, count: names.length });
   } catch (err: any) {

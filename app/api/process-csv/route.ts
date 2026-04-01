@@ -7,12 +7,14 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const filePath = body?.filePath;
     const fileUrl = body?.fileUrl;
+    const fileRef = typeof filePath === 'string' && filePath ? filePath : fileUrl;
     const mapping = body?.mapping as Partial<FieldMapping> | undefined;
 
-    if (!fileUrl || typeof fileUrl !== 'string') {
+    if (!fileRef || typeof fileRef !== 'string') {
       return NextResponse.json(
-        { success: false, error: 'fileUrl is required' },
+        { success: false, error: 'filePath or fileUrl is required' },
         { status: 400 }
       );
     }
@@ -33,7 +35,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const snapshot = await processCsvSnapshot(fileUrl, mapping as FieldMapping);
+    const snapshot = await processCsvSnapshot(fileRef, mapping as FieldMapping);
 
     return NextResponse.json({
       success: true,

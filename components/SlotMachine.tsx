@@ -7,6 +7,7 @@ type ListsResponse = {
   success: boolean;
   rouletteUsers: string[];
   highRiskUsers: string[];
+  activeUsers?: string[];
   error?: string;
 };
 
@@ -103,7 +104,9 @@ export function SlotMachine() {
       if (!res.ok || !json.success) {
         throw new Error(json.error || "Failed to load lists");
       }
-      const users = json.rouletteUsers || [];
+      const hasHighRiskUsers = Array.isArray(json.highRiskUsers) && json.highRiskUsers.length > 0;
+      const activeUsers = Array.isArray(json.activeUsers) ? json.activeUsers : [];
+      const users = hasHighRiskUsers ? (json.rouletteUsers || []) : activeUsers;
       if (!mountedRef.current) return;
       setEligibleUsers(users);
       eligibleUsersRef.current = users;

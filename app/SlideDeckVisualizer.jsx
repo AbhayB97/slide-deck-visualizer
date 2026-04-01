@@ -182,10 +182,9 @@ export default function SlideDeckVisualizer() {
           message:
             "Snapshot contains zero parsed rows. Upload a CSV with data to see charts and heatmaps.",
         });
-        return;
+      } else {
+        setStatusNotice(null);
       }
-
-      setStatusNotice(null);
     } catch (err) {
       const fallback =
         weekId === null
@@ -432,40 +431,18 @@ export default function SlideDeckVisualizer() {
     );
   }
 
-  if (statusNotice?.message) {
-    const isMissing = statusNotice.type === "missing";
+  if (statusNotice?.type === "missing" && statusNotice?.message) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center text-gray-700">
         <AlertCircle size={48} className="mb-4 text-amber-500" />
         <p className="text-xl font-bold text-center max-w-xl">{statusNotice.message}</p>
         <p className="mt-2 text-center text-gray-500 max-w-xl">
-          {isMissing
-            ? "We could not load the latest snapshot. Check with an admin and try again."
-            : "This snapshot has no rows to visualize yet. Upload data and then retry."}
+          We could not load the latest snapshot. Check with an admin and try again.
         </p>
         <button
           onClick={() => loadSnapshot(selectedWeek ?? null)}
           className="mt-6 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800"
           aria-label="Retry loading snapshot"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  if (!parsedRows.length) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-gray-600">
-        <AlertCircle size={40} className="mb-3 text-amber-500" />
-        <p className="text-xl font-bold text-center">Snapshot contains zero parsed rows.</p>
-        <p className="mt-2 text-center text-gray-500">
-          Upload a CSV with data to see charts, then retry loading the dashboard.
-        </p>
-        <button
-          onClick={() => loadSnapshot(selectedWeek ?? null)}
-          className="mt-6 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800"
-          aria-label="Retry loading snapshot after upload"
         >
           Retry
         </button>
@@ -541,6 +518,18 @@ export default function SlideDeckVisualizer() {
           </div>
         </div>
 
+        {statusNotice?.type === "empty" && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl px-6 py-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <AlertCircle size={20} className="mt-0.5 shrink-0 text-amber-600" />
+              <div>
+                <p className="text-base font-semibold text-amber-900">Empty snapshot loaded</p>
+                <p className="mt-1 text-sm text-amber-800">{statusNotice.message}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* MAIN CONTENT */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {/* High Risk Panel */}
@@ -580,7 +569,8 @@ export default function SlideDeckVisualizer() {
 
             {viewMode === "grid" && (
               <div className="overflow-x-auto pb-2">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
+                {sortedData.length ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
                   {sortedData.map((p) => {
                     const color = heatmapColors(p.value, minValue, maxValue);
                     const delta = deltaByName?.[normalizeNameKey(p.name)] ?? 0;
@@ -622,7 +612,12 @@ export default function SlideDeckVisualizer() {
                       </div>
                     );
                   })}
-                </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-5 py-10 text-center text-sm text-gray-500">
+                    No incomplete users in this snapshot.
+                  </div>
+                )}
                 {loadingMetrics && (
                   <div className="mt-3 text-xs text-gray-500">
                     Loading week-over-week changes...

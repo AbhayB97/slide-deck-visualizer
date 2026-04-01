@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       fileUrl: result.url,
+      filePath: result.pathname,
       fileName: result.pathname,
       uploadedAt: result.uploadedAt,
     });

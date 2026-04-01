@@ -6,6 +6,7 @@ import Link from "next/link";
 type UploadResponse = {
   success: boolean;
   fileUrl: string;
+  filePath: string;
   fileName: string;
   uploadedAt: string;
 };
@@ -114,7 +115,7 @@ export default function AdminUploadPage() {
   };
 
   const handleProcess = async () => {
-    if (!uploadResult?.fileUrl) return;
+    if (!uploadResult?.filePath && !uploadResult?.fileUrl) return;
     if (!allMapped) {
       setError("Please map all fields before processing.");
       return;
@@ -126,7 +127,11 @@ export default function AdminUploadPage() {
       const res = await fetch("/api/process-csv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileUrl: uploadResult.fileUrl, mapping }),
+        body: JSON.stringify({
+          filePath: uploadResult.filePath,
+          fileUrl: uploadResult.fileUrl,
+          mapping,
+        }),
       });
       const data: SnapshotResponse = await res.json();
       if (!res.ok || !data.success || !data.snapshot) {
