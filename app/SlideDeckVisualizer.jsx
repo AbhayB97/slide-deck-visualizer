@@ -384,6 +384,15 @@ export default function SlideDeckVisualizer() {
     (row) => row.fullName === selectedUser
   );
 
+  const perfectWeeksCount = useMemo(
+    () =>
+      orderedWeeks.filter((week) => {
+        const incomplete = Number(week?.totalIncomplete ?? week?.offenderCount ?? 0);
+        return Number.isFinite(incomplete) && incomplete === 0;
+      }).length,
+    [orderedWeeks]
+  );
+
   const uploadedLabel = snapshot?.uploadedAt
     ? new Date(snapshot.uploadedAt).toLocaleDateString(undefined, {
         year: "numeric",
@@ -466,6 +475,8 @@ export default function SlideDeckVisualizer() {
                 <span>Total Items: {totalTasks}</span>
                 <span className="mx-1 text-gray-300">|</span>
                 <span>Total People: {masterCount}</span>
+                <span className="mx-1 text-gray-300">|</span>
+                <span>Weeks with 100% completion rate: {perfectWeeksCount}</span>
                 {snapshot?.weekId && (
                   <>
                     <span className="mx-1 text-gray-300">|</span>
