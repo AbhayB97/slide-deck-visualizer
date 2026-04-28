@@ -31,10 +31,13 @@ function formatNameForBlob(name: string) {
     .replace(/^-|-$/g, "");
 }
 
-function getAvatarUrl(name: string, blobBaseUrl: string) {
+function getAvatarUrls(name: string, blobBaseUrl: string) {
   const formattedName = formatNameForBlob(name);
   const safeBaseUrl = blobBaseUrl.replace(/\/+$/, "");
-  return `${safeBaseUrl}/avatars/${formattedName}.jpg`;
+  return [
+    `${safeBaseUrl}/avatars/${formattedName}.jpg`,
+    `${safeBaseUrl}/avatars/${formattedName}.png`,
+  ];
 }
 
 function getFallbackAvatarUrl(name: string) {
@@ -86,9 +89,7 @@ export function MegaGrid({
   const [phase, setPhase] = useState<"idle" | "darting" | "slowing" | "locked">(
     "idle"
   );
-  const [imageFallbackMap, setImageFallbackMap] = useState<Record<string, boolean>>(
-    {}
-  );
+  const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, number>>({});
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,7 +137,7 @@ export function MegaGrid({
 
       if (!mountedRef.current) return;
       setEligibleUsers(users);
-      setImageFallbackMap({});
+      setImageVariantIndexMap({});
       setActiveIndex(users.length ? 0 : null);
       setWinnerIndex(null);
       setShowReveal(false);
@@ -215,16 +216,20 @@ export function MegaGrid({
 
   function cardImageUrl(name: string) {
     if (!hasBlobBaseUrl) return getFallbackAvatarUrl(name);
-    const shouldFallback = imageFallbackMap[name];
-    return shouldFallback
-      ? getFallbackAvatarUrl(name)
-      : getAvatarUrl(name, blobBaseUrl);
+    const avatarUrls = getAvatarUrls(name, blobBaseUrl);
+    const variantIndex = imageVariantIndexMap[name] ?? 0;
+    return avatarUrls[variantIndex] ?? getFallbackAvatarUrl(name);
   }
 
   function handleImageError(name: string) {
-    setImageFallbackMap((current) => {
-      if (current[name]) return current;
-      return { ...current, [name]: true };
+    if (!hasBlobBaseUrl) return;
+    setImageVariantIndexMap((current) => {
+      const nextIndex = (current[name] ?? 0) + 1;
+      const avatarUrls = getAvatarUrls(name, blobBaseUrl);
+      if (nextIndex >= avatarUrls.length) {
+        return { ...current, [name]: avatarUrls.length };
+      }
+      return { ...current, [name]: nextIndex };
     });
   }
 
