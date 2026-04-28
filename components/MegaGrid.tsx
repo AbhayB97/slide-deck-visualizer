@@ -250,16 +250,20 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
       <div className={shellClassName}>
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-cyan-300/80">
-              Draw
-            </p>
-            <h2 className="mt-2 text-2xl font-black tracking-tight text-white md:text-3xl">
-              {buildTitle(standalone)}
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm text-slate-300">
-              Every eligible employee is visible at once. The selector darts across
-              the full field, slows under tension, and locks onto one winner.
-            </p>
+            {standalone ? null : (
+              <>
+                <p className="text-xs uppercase tracking-[0.35em] text-cyan-300/80">
+                  Draw
+                </p>
+                <h2 className="mt-2 text-2xl font-black tracking-tight text-white md:text-3xl">
+                  {buildTitle(standalone)}
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                  Every eligible employee is visible at once. The selector darts across
+                  the full field, slows under tension, and locks onto one winner.
+                </p>
+              </>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
