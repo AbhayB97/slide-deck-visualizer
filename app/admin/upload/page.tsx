@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { upload } from "@vercel/blob/client";
 
 type UploadResponse = {
   success: boolean;
@@ -61,19 +62,20 @@ export default function AdminUploadPage() {
     });
     setHeaders([]);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/upload-csv", {
-        method: "POST",
-        body: formData,
+      const csvFile = ensureCsvFile(file);
+      const blob = await upload(csvFile.name, csvFile, {
+        access: "public",
+        handleUploadUrl: "/api/upload-csv-client",
       });
-      const data: UploadResponse = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error((data as any)?.error || "Upload failed");
-      }
+      const data: UploadResponse = {
+        success: true,
+        fileUrl: blob.url,
+        filePath: blob.pathname,
+        fileName: blob.pathname,
+        uploadedAt: new Date().toISOString(),
+      };
       setUploadResult(data);
-      await loadHeaders(data.fileUrl);
+      await loadHeadersFromFile(csvFile);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -91,12 +93,19 @@ export default function AdminUploadPage() {
     return best && best.count > 0 ? best.d : ",";
   };
 
-  const loadHeaders = async (url: string) => {
+  const ensureCsvFile = (source: File) => {
+    if (source.type === "text/csv") return source;
+    return new File([source], source.name, {
+      type: "text/csv",
+      lastModified: source.lastModified,
+    });
+  };
+
+  const loadHeadersFromFile = async (source: File) => {
     try {
       setLoadingHeaders(true);
-      const res = await fetch(url);
-      const text = await res.text();
-      const firstLine = text.split(/\r?\n/)[0] ?? "";
+      const text = await source.text();
+      const firstLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
       const delimiter = detectDelimiter(firstLine);
       const parsed = firstLine.split(delimiter).map((h) => h.replace(/^\uFEFF/, "").trim());
       setHeaders(parsed.filter(Boolean));
