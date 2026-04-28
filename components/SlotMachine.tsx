@@ -11,18 +11,22 @@ type ListsResponse = {
   error?: string;
 };
 
+const BLIP_MIN_D = 0.18;
+const BLIP_MAX_D = 0.88;
+const BLIP_SPEED = 0.0012; // normalised units per frame
+
 interface Blip {
   name: string;
   nx: number; // normalised -1..1
   ny: number;
-  angle: number; // atan2(ny, nx)
-  dist: number;  // 0..1
+  vx: number; // velocity, normalised per frame
+  vy: number;
+  angle: number; // atan2(ny, nx) — recomputed each frame
+  dist: number;  // sqrt(nx²+ny²) — recomputed each frame
 }
 
 function generateBlips(users: string[]): Blip[] {
   const blips: Blip[] = [];
-  const MIN_D = 0.25;
-  const MAX_D = 0.88;
   const MIN_SEPARATION = 0.14;
 
   for (const name of users) {
@@ -30,7 +34,7 @@ function generateBlips(users: string[]): Blip[] {
     let attempts = 0;
     do {
       angle = Math.random() * Math.PI * 2;
-      dist = MIN_D + Math.random() * (MAX_D - MIN_D);
+      dist = BLIP_MIN_D + Math.random() * (BLIP_MAX_D - BLIP_MIN_D);
       nx = Math.cos(angle) * dist;
       ny = Math.sin(angle) * dist;
       attempts++;
@@ -38,9 +42,58 @@ function generateBlips(users: string[]): Blip[] {
       attempts < 60 &&
       blips.some((b) => Math.hypot(b.nx - nx, b.ny - ny) < MIN_SEPARATION)
     );
-    blips.push({ name, nx, ny, angle, dist });
+
+    // Random direction, fixed speed
+    const va = Math.random() * Math.PI * 2;
+    const speed = BLIP_SPEED * (0.5 + Math.random());
+    blips.push({ name, nx, ny, vx: Math.cos(va) * speed, vy: Math.sin(va) * speed, angle, dist });
   }
   return blips;
+}
+
+function stepBlips(blips: Blip[]) {
+  for (const b of blips) {
+    // Small random drift so movement feels organic
+    b.vx += (Math.random() - 0.5) * 0.00008;
+    b.vy += (Math.random() - 0.5) * 0.00008;
+
+    // Clamp speed
+    const spd = Math.hypot(b.vx, b.vy);
+    const maxSpd = BLIP_SPEED * 2;
+    const minSpd = BLIP_SPEED * 0.3;
+    if (spd > maxSpd) { b.vx = (b.vx / spd) * maxSpd; b.vy = (b.vy / spd) * maxSpd; }
+    if (spd < minSpd) { b.vx = (b.vx / spd) * minSpd; b.vy = (b.vy / spd) * minSpd; }
+
+    let nx = b.nx + b.vx;
+    let ny = b.ny + b.vy;
+    const d = Math.hypot(nx, ny);
+
+    // Bounce off outer boundary
+    if (d > BLIP_MAX_D) {
+      const rx = nx / d, ry = ny / d; // radial unit vector
+      const dot = b.vx * rx + b.vy * ry;
+      b.vx -= 2 * dot * rx;
+      b.vy -= 2 * dot * ry;
+      nx = b.nx + b.vx;
+      ny = b.ny + b.vy;
+    }
+
+    // Bounce off inner boundary (keep away from centre)
+    const d2 = Math.hypot(nx, ny);
+    if (d2 < BLIP_MIN_D) {
+      const rx = nx / (d2 || 1), ry = ny / (d2 || 1);
+      const dot = b.vx * rx + b.vy * ry;
+      b.vx -= 2 * dot * rx;
+      b.vy -= 2 * dot * ry;
+      nx = b.nx + b.vx;
+      ny = b.ny + b.vy;
+    }
+
+    b.nx = nx;
+    b.ny = ny;
+    b.dist = Math.hypot(nx, ny);
+    b.angle = Math.atan2(ny, nx);
+  }
 }
 
 export function SlotMachine() {
@@ -367,6 +420,7 @@ export function SlotMachine() {
       }
     }
 
+    stepBlips(blipsRef.current);
     draw();
     rafRef.current = requestAnimationFrame(animate);
   }, [draw]);
