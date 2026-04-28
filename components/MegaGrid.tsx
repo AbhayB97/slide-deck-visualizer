@@ -16,6 +16,8 @@ type MegaGridProps = {
   blobBaseUrl?: string;
 };
 
+const DEFAULT_BLOB_BASE_URL =
+  "https://f6k4nyqhrlhpfz4k.public.blob.vercel-storage.com";
 const FAST_DELAY_MS = 70;
 const SLOW_DELAY_MS = 320;
 const FAST_PHASE_MS = 3000;
@@ -77,7 +79,7 @@ function getErrorMessage(error: unknown) {
 
 export function MegaGrid({
   standalone = false,
-  blobBaseUrl = process.env.NEXT_PUBLIC_BLOB_BASE_URL ?? "",
+  blobBaseUrl = process.env.NEXT_PUBLIC_BLOB_BASE_URL ?? DEFAULT_BLOB_BASE_URL,
 }: MegaGridProps) {
   const [eligibleUsers, setEligibleUsers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
