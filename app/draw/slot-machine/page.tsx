@@ -1,7 +1,7 @@
 "use client";
 
-import { SlotMachine } from "@/components/SlotMachine";
+import { MegaGrid } from "@/components/MegaGrid";
 
 export default function SlotMachinePage() {
-  return <SlotMachine />;
+  return <MegaGrid standalone />;
 }
