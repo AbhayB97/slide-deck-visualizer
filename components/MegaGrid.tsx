@@ -89,7 +89,7 @@ export function MegaGrid({
   const [phase, setPhase] = useState<"idle" | "darting" | "slowing" | "locked">(
     "idle"
   );
-  const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, number>>({});
+const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, number>>({});
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
