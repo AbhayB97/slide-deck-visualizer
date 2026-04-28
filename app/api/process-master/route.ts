@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const filePath = body?.filePath;
     const fileUrl = body?.fileUrl;
-    const fileRef = typeof filePath === 'string' && filePath ? filePath : fileUrl;
+    const fileRef = typeof fileUrl === 'string' && fileUrl ? fileUrl : filePath;
     const mapping = body?.mapping as Partial<MasterMapping> | undefined;
 
     if (!fileRef || typeof fileRef !== 'string') {
