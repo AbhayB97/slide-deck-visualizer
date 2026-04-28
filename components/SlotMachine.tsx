@@ -307,23 +307,34 @@ export function SlotMachine() {
       const isWinner = wb && blip.name === wb.name;
 
       if (isWinner && !spinningRef.current && wb) {
-        // Flash red
         const flash = Math.floor(now / 300) % 2 === 0;
         ctx.save();
-        if (flash) {
-          // Outer pulse
-          ctx.beginPath();
-          ctx.arc(bx, by, 14, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(255,0,0,0.15)";
-          ctx.fill();
-          // Inner dot
-          ctx.beginPath();
-          ctx.arc(bx, by, 5, 0, Math.PI * 2);
-          ctx.fillStyle = "#ff3030";
-          ctx.shadowBlur = 22;
-          ctx.shadowColor = "#ff0000";
-          ctx.fill();
-        }
+        // Outer pulse ring
+        ctx.beginPath();
+        ctx.arc(bx, by, 14, 0, Math.PI * 2);
+        ctx.fillStyle = flash ? "rgba(255,0,0,0.15)" : "rgba(255,0,0,0.05)";
+        ctx.fill();
+        // Inner dot
+        ctx.beginPath();
+        ctx.arc(bx, by, 5, 0, Math.PI * 2);
+        ctx.fillStyle = flash ? "#ff3030" : "#aa1010";
+        ctx.shadowBlur = flash ? 22 : 8;
+        ctx.shadowColor = "#ff0000";
+        ctx.fill();
+        ctx.restore();
+
+        // Name label — always visible, positioned to stay inside the radar
+        const PADDING = 10;
+        const labelX = bx > cx ? bx - PADDING : bx + PADDING;
+        const align = bx > cx ? "right" : "left";
+        ctx.save();
+        ctx.font = "bold 13px monospace";
+        ctx.textBaseline = "middle";
+        ctx.textAlign = align as CanvasTextAlign;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "#ff0000";
+        ctx.fillStyle = flash ? "#ff5050" : "#cc2020";
+        ctx.fillText(blip.name, labelX, by);
         ctx.restore();
         continue;
       }
