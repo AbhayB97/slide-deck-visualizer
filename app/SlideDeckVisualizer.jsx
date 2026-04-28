@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import {
   LayoutGrid,
   List,
   AlertCircle,
   Loader2,
 } from "lucide-react";
-import { MegaGrid } from "@/components/MegaGrid";
 
 const NO_SNAPSHOT_MESSAGE =
   "No snapshot available. Ask the admin to upload this week's CSV.";
@@ -707,7 +707,20 @@ export default function SlideDeckVisualizer() {
             )}
           </div>
 
-          <MegaGrid />
+          <div className="bg-white p-6 rounded-2xl shadow-lg border flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Weekly Draw</h2>
+              <p className="text-sm text-gray-600">
+                Open the Mega-Grid draw to pick a random eligible user.
+              </p>
+            </div>
+            <Link
+              href="/draw/slot-machine"
+              className="text-sm px-4 py-2 rounded-md bg-emerald-600 text-white font-semibold shadow-sm hover:bg-emerald-700"
+            >
+              Open Mega-Grid Draw
+            </Link>
+          </div>
         </div>
 
         {/* ---------- USER MODAL ---------- */}
