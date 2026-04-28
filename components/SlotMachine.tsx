@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 
 type ListsResponse = {
@@ -11,86 +11,58 @@ type ListsResponse = {
   error?: string;
 };
 
-const VISIBLE_ROWS = 7;
-const CENTER_INDEX = 3;
-const ROW_HEIGHT = 48;
-const REEL_HEIGHT = VISIBLE_ROWS * ROW_HEIGHT;
-const BASE_DELAY = 60;
-
-function randomOf(list: string[], exclude?: string) {
-  if (!list.length) return "";
-  if (!exclude || list.length === 1) {
-    return list[Math.floor(Math.random() * list.length)];
-  }
-  let pick = exclude;
-  let attempts = 0;
-  while (pick === exclude && attempts < 8) {
-    pick = list[Math.floor(Math.random() * list.length)];
-    attempts += 1;
-  }
-  if (pick === exclude) {
-    const filtered = list.filter((name) => name !== exclude);
-    if (filtered.length) {
-      return filtered[Math.floor(Math.random() * filtered.length)];
-    }
-  }
-  return pick;
+interface Blip {
+  name: string;
+  nx: number; // normalised -1..1
+  ny: number;
+  angle: number; // atan2(ny, nx)
+  dist: number;  // 0..1
 }
 
-function buildReel(list: string[], centerName?: string) {
-  const reel: string[] = [];
-  for (let i = 0; i < VISIBLE_ROWS; i += 1) {
-    if (centerName && i === CENTER_INDEX) {
-      reel.push(centerName);
-      continue;
-    }
-    const prev = reel[i - 1];
-    reel.push(randomOf(list, prev));
-  }
+function generateBlips(users: string[]): Blip[] {
+  const blips: Blip[] = [];
+  const MIN_D = 0.25;
+  const MAX_D = 0.88;
+  const MIN_SEPARATION = 0.14;
 
-  if (centerName && list.length > 1) {
-    const prevIndex = CENTER_INDEX - 1;
-    const nextIndex = CENTER_INDEX + 1;
-    if (prevIndex >= 0 && reel[prevIndex] === centerName) {
-      reel[prevIndex] = randomOf(list, centerName);
-    }
-    if (nextIndex < VISIBLE_ROWS && reel[nextIndex] === centerName) {
-      reel[nextIndex] = randomOf(list, centerName);
-    }
-    if (prevIndex - 1 >= 0 && reel[prevIndex] === reel[prevIndex - 1]) {
-      reel[prevIndex] = randomOf(list, reel[prevIndex - 1]);
-    }
-    if (nextIndex + 1 < VISIBLE_ROWS && reel[nextIndex] === reel[nextIndex + 1]) {
-      reel[nextIndex] = randomOf(list, reel[nextIndex + 1]);
-    }
+  for (const name of users) {
+    let nx = 0, ny = 0, dist = 0, angle = 0;
+    let attempts = 0;
+    do {
+      angle = Math.random() * Math.PI * 2;
+      dist = MIN_D + Math.random() * (MAX_D - MIN_D);
+      nx = Math.cos(angle) * dist;
+      ny = Math.sin(angle) * dist;
+      attempts++;
+    } while (
+      attempts < 60 &&
+      blips.some((b) => Math.hypot(b.nx - nx, b.ny - ny) < MIN_SEPARATION)
+    );
+    blips.push({ name, nx, ny, angle, dist });
   }
-
-  return reel;
+  return blips;
 }
 
 export function SlotMachine() {
   const [eligibleUsers, setEligibleUsers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [names, setNames] = useState<string[]>([]);
   const [spinning, setSpinning] = useState(false);
-  const [slowing, setSlowing] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
-  const [celebrate, setCelebrate] = useState(false);
 
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const autoStopRef = useRef<NodeJS.Timeout | null>(null);
-  const celebrateTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const currentDelayRef = useRef(BASE_DELAY);
-  const slowingRef = useRef(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const blipsRef = useRef<Blip[]>([]);
+  const sweepAngleRef = useRef(-Math.PI / 2); // start at top
+  const velRef = useRef(0);
   const spinningRef = useRef(false);
-  const namesRef = useRef<string[]>([]);
-  const eligibleUsersRef = useRef<string[]>([]);
+  const stoppingRef = useRef(false);
+  const winnerBlipRef = useRef<Blip | null>(null);
+  const rafRef = useRef<number>(0);
+  const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const drumOscRef = useRef<OscillatorNode | null>(null);
-  const drumGainRef = useRef<GainNode | null>(null);
+  const lastPingAngleRef = useRef<number>(-999);
 
   async function loadEligible() {
     abortRef.current?.abort();
@@ -101,28 +73,305 @@ export function SlotMachine() {
       setError(null);
       const res = await fetch("/api/current-lists", { signal: controller.signal });
       const json: ListsResponse = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "Failed to load lists");
-      }
-      const hasHighRiskUsers = Array.isArray(json.highRiskUsers) && json.highRiskUsers.length > 0;
-      const activeUsers = Array.isArray(json.activeUsers) ? json.activeUsers : [];
-      const users = hasHighRiskUsers ? (json.rouletteUsers || []) : activeUsers;
+      if (!res.ok || !json.success) throw new Error(json.error || "Failed to load lists");
+      const hasHighRisk = Array.isArray(json.highRiskUsers) && json.highRiskUsers.length > 0;
+      const active = Array.isArray(json.activeUsers) ? json.activeUsers : [];
+      const users = hasHighRisk ? json.rouletteUsers || [] : active;
       if (!mountedRef.current) return;
       setEligibleUsers(users);
-      eligibleUsersRef.current = users;
-      setNames(buildReel(users));
+      blipsRef.current = generateBlips(users);
     } catch (err: any) {
       if (err?.name === "AbortError") return;
       if (!mountedRef.current) return;
       setError(err?.message || "Failed to load lists");
       setEligibleUsers([]);
-      eligibleUsersRef.current = [];
-      setNames([]);
+      blipsRef.current = [];
     } finally {
-      if (!mountedRef.current) return;
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }
+
+  // ── audio ──────────────────────────────────────────────────────────────────
+
+  function pingSound(freq = 880) {
+    try {
+      const ACtx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = audioCtxRef.current ?? new ACtx();
+      audioCtxRef.current = ctx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.5, ctx.currentTime + 0.4);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.4);
+    } catch {}
+  }
+
+  function winnerSound() {
+    try {
+      const ACtx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = audioCtxRef.current ?? new ACtx();
+      audioCtxRef.current = ctx;
+      [0, 0.15, 0.3].forEach((delay, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const freqs = [523, 659, 784];
+        osc.type = "sine";
+        osc.frequency.value = freqs[i];
+        gain.gain.setValueAtTime(0.15, ctx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.5);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + 0.55);
+      });
+    } catch {}
+  }
+
+  // ── canvas draw ────────────────────────────────────────────────────────────
+
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const cx = W / 2;
+    const cy = H / 2;
+    const R = Math.min(cx, cy) - 16;
+    const sweep = sweepAngleRef.current;
+    const TRAIL = Math.PI * 0.55; // ~100° glow trail
+
+    // ── background ──────────────────────────────────────────────────────────
+    ctx.clearRect(0, 0, W, H);
+
+    // Radar face
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fillStyle = "#010d02";
+    ctx.fill();
+    ctx.restore();
+
+    // Vignette
+    const vignette = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, R);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, "rgba(0,30,5,0.65)");
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fillStyle = vignette;
+    ctx.fill();
+    ctx.restore();
+
+    // ── grid ────────────────────────────────────────────────────────────────
+    ctx.save();
+    ctx.strokeStyle = "rgba(0,180,50,0.18)";
+    ctx.lineWidth = 1;
+
+    // Concentric rings
+    for (let r = 0.25; r <= 1.01; r += 0.25) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Spokes every 45°
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Outer ring
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(0,220,60,0.45)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    // ── sweep trail ─────────────────────────────────────────────────────────
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R - 2, 0, Math.PI * 2);
+    ctx.clip();
+
+    const STEPS = 40;
+    for (let i = 0; i < STEPS; i++) {
+      const t0 = i / STEPS;
+      const t1 = (i + 1) / STEPS;
+      const a0 = sweep - TRAIL * (1 - t0);
+      const a1 = sweep - TRAIL * (1 - t1);
+      const alpha = Math.pow(t1, 1.6) * 0.45;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, R - 2, a0, a1);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(0,255,70,${alpha})`;
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // ── sweep line ──────────────────────────────────────────────────────────
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(sweep) * (R - 1), cy + Math.sin(sweep) * (R - 1));
+    ctx.strokeStyle = "rgba(0,255,80,0.95)";
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = "#00ff46";
+    ctx.stroke();
+    ctx.restore();
+
+    // ── centre dot ──────────────────────────────────────────────────────────
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#00ff46";
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "#00ff46";
+    ctx.fill();
+    ctx.restore();
+
+    // ── blips ───────────────────────────────────────────────────────────────
+    const blips = blipsRef.current;
+    const wb = winnerBlipRef.current;
+    const now = Date.now();
+
+    for (const blip of blips) {
+      const bx = cx + blip.nx * R;
+      const by = cy + blip.ny * R;
+      const isWinner = wb && blip.name === wb.name;
+
+      if (isWinner && !spinningRef.current && wb) {
+        // Flash red
+        const flash = Math.floor(now / 300) % 2 === 0;
+        ctx.save();
+        if (flash) {
+          // Outer pulse
+          ctx.beginPath();
+          ctx.arc(bx, by, 14, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255,0,0,0.15)";
+          ctx.fill();
+          // Inner dot
+          ctx.beginPath();
+          ctx.arc(bx, by, 5, 0, Math.PI * 2);
+          ctx.fillStyle = "#ff3030";
+          ctx.shadowBlur = 22;
+          ctx.shadowColor = "#ff0000";
+          ctx.fill();
+        }
+        ctx.restore();
+        continue;
+      }
+
+      // How recently did the sweep pass this blip?
+      let diff = ((sweep - blip.angle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+      const brightness = diff < TRAIL ? 1 - (diff / TRAIL) * 0.75 : 0.12;
+
+      // Glow halo
+      const glowR = 5 + brightness * 6;
+      const g = ctx.createRadialGradient(bx, by, 0, bx, by, glowR);
+      g.addColorStop(0, `rgba(0,255,70,${brightness * 0.9})`);
+      g.addColorStop(1, "rgba(0,255,70,0)");
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(bx, by, glowR, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+
+      // Core dot
+      ctx.beginPath();
+      ctx.arc(bx, by, 3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0,255,70,${Math.max(brightness, 0.2)})`;
+      ctx.shadowBlur = brightness > 0.5 ? 8 : 0;
+      ctx.shadowColor = "#00ff46";
+      ctx.fill();
+      ctx.restore();
+
+      // Label: show when bright or list is small
+      if (brightness > 0.45 || blips.length <= 12) {
+        const labelAlpha = Math.max(brightness, blips.length <= 12 ? 0.35 : 0);
+        const fontSize = Math.max(9, Math.min(12, 130 / Math.max(blips.length, 1)));
+        ctx.save();
+        ctx.font = `${fontSize}px monospace`;
+        ctx.fillStyle = `rgba(0,255,70,${labelAlpha})`;
+        ctx.textBaseline = "middle";
+        ctx.textAlign = blip.nx < 0 ? "right" : "left";
+        ctx.fillText(blip.name, bx + (blip.nx < 0 ? -9 : 9), by);
+        ctx.restore();
+      }
+    }
+  }, []);
+
+  // ── animation loop ─────────────────────────────────────────────────────────
+
+  const animate = useCallback(() => {
+    if (spinningRef.current) {
+      if (!stoppingRef.current) {
+        // Accelerate up to max
+        velRef.current = Math.min(velRef.current + 0.0018, 0.13);
+      } else {
+        // Decelerate
+        velRef.current *= 0.91;
+        if (velRef.current < 0.004) {
+          // Snap to nearest blip (or pick random if somehow no blips)
+          const blips = blipsRef.current;
+          if (blips.length) {
+            const sa = sweepAngleRef.current;
+            let best = blips[0];
+            let bestDiff = Infinity;
+            for (const b of blips) {
+              const diff = ((sa - b.angle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+              const dist = Math.min(diff, Math.PI * 2 - diff);
+              if (dist < bestDiff) { bestDiff = dist; best = b; }
+            }
+            winnerBlipRef.current = best;
+            sweepAngleRef.current = best.angle;
+            setWinner(best.name);
+            winnerSound();
+          }
+          velRef.current = 0;
+          spinningRef.current = false;
+          stoppingRef.current = false;
+          setSpinning(false);
+        }
+      }
+      sweepAngleRef.current += velRef.current;
+
+      // Ping sound each time sweep crosses a blip
+      if (spinningRef.current) {
+        const blips = blipsRef.current;
+        const sa = sweepAngleRef.current;
+        for (const b of blips) {
+          const diff = ((sa - b.angle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+          if (diff < velRef.current * 2) {
+            const lastDiff = ((lastPingAngleRef.current - b.angle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+            if (lastDiff > velRef.current * 3) {
+              const rate = velRef.current / 0.13;
+              pingSound(400 + rate * 480);
+            }
+          }
+        }
+        lastPingAngleRef.current = sa;
+      }
+    }
+
+    draw();
+    rafRef.current = requestAnimationFrame(animate);
+  }, [draw]);
+
+  // ── lifecycle ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     mountedRef.current = true;
@@ -130,289 +379,104 @@ export function SlotMachine() {
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();
-      clearTimer();
-      clearAutoStop();
-      if (celebrateTimerRef.current) {
-        clearTimeout(celebrateTimerRef.current);
-        celebrateTimerRef.current = null;
-      }
-      stopDrumroll(true);
+      if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
+      cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
   useEffect(() => {
-    namesRef.current = names;
-  }, [names]);
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [animate]);
 
-  useEffect(() => {
-    eligibleUsersRef.current = eligibleUsers;
-  }, [eligibleUsers]);
-
-  const clearTimer = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
-  const clearAutoStop = () => {
-    if (autoStopRef.current) {
-      clearTimeout(autoStopRef.current);
-      autoStopRef.current = null;
-    }
-  };
-
-  const tick = () => {
-    const users = eligibleUsersRef.current;
-    let nextDelay = currentDelayRef.current;
-
-    if (slowingRef.current) {
-      // decelerate
-      nextDelay = Math.min(nextDelay + 30, 320);
-      // When slow enough, stop on the current center name
-      if (nextDelay >= 300) {
-        const finalWinner = namesRef.current[CENTER_INDEX] || randomOf(users);
-        clearTimer();
-        setNames(buildReel(users, finalWinner));
-        setSpinning(false);
-        spinningRef.current = false;
-        setSlowing(false);
-        slowingRef.current = false;
-        setWinner(finalWinner || null);
-        stopDrumroll();
-        setCelebrate(true);
-        if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current);
-        celebrateTimerRef.current = setTimeout(() => {
-          setCelebrate(false);
-          celebrateTimerRef.current = null;
-        }, 1200);
-        currentDelayRef.current = BASE_DELAY;
-        return;
-      }
-    }
-
-    setNames((prev) => {
-      const next = [...prev];
-      next.shift();
-      next.push(randomOf(users, next[next.length - 1]));
-      return next;
-    });
-
-    currentDelayRef.current = nextDelay;
-    clearTimer();
-    timerRef.current = setTimeout(tick, nextDelay);
-  };
+  // ── controls ───────────────────────────────────────────────────────────────
 
   const startSpin = () => {
     if (!eligibleUsers.length || spinningRef.current) return;
     setWinner(null);
-    setSpinning(true);
+    winnerBlipRef.current = null;
+    velRef.current = 0.02;
     spinningRef.current = true;
-    setSlowing(false);
-    slowingRef.current = false;
-    currentDelayRef.current = BASE_DELAY;
-    clearTimer();
-    clearAutoStop();
-    timerRef.current = setTimeout(tick, BASE_DELAY);
+    stoppingRef.current = false;
+    lastPingAngleRef.current = -999;
+    setSpinning(true);
 
-    // Auto-stop after a random duration between 3s and 5s
-    const duration = 3000 + Math.random() * 2000;
-    autoStopRef.current = setTimeout(() => stopSpin(), duration);
-    startDrumroll();
+    const duration = 3500 + Math.random() * 2500;
+    if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
+    autoStopTimerRef.current = setTimeout(() => {
+      if (spinningRef.current) stoppingRef.current = true;
+    }, duration);
+
+    pingSound(660);
   };
-
-  const stopSpin = () => {
-    clearAutoStop();
-    if (!spinningRef.current || slowingRef.current) return;
-    setSlowing(true);
-    slowingRef.current = true;
-  };
-
-  const startDrumroll = () => {
-    if (drumOscRef.current) return;
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    const ctx = audioCtxRef.current || new AudioCtx();
-    audioCtxRef.current = ctx;
-    const gain = ctx.createGain();
-    const osc = ctx.createOscillator();
-    osc.type = "sawtooth";
-    osc.frequency.value = 120;
-    gain.gain.value = 0;
-    osc.connect(gain).connect(ctx.destination);
-    osc.start();
-    const now = ctx.currentTime;
-    gain.gain.linearRampToValueAtTime(0.03, now + 0.05);
-    drumOscRef.current = osc;
-    drumGainRef.current = gain;
-  };
-
-  const stopDrumroll = (immediate = false) => {
-    const osc = drumOscRef.current;
-    const gain = drumGainRef.current;
-    const ctx = audioCtxRef.current;
-    if (!osc || !gain || !ctx) return;
-    const now = ctx.currentTime;
-    if (immediate) {
-      gain.gain.cancelScheduledValues(now);
-      gain.gain.setValueAtTime(0, now);
-    } else {
-      gain.gain.linearRampToValueAtTime(0, now + 0.2);
-    }
-    osc.stop(now + (immediate ? 0 : 0.25));
-    drumOscRef.current = null;
-    drumGainRef.current = null;
-  };
-
-  const scanlineStyle = {
-    backgroundImage:
-      "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
-    backgroundSize: "100% 6px, 6px 100%",
-    animation: "flicker 2s infinite",
-  } as React.CSSProperties;
 
   return (
-    <div className="min-h-screen bg-[#0b0f16] px-6 py-8 flex justify-center font-mono text-gray-100">
-      <div className="w-full max-w-5xl flex flex-col gap-6">
+    <div className="min-h-screen bg-[#000e02] px-6 py-8 flex justify-center font-mono text-gray-100">
+      <div className="w-full max-w-2xl flex flex-col gap-6">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-wide text-teal-400">Draw</p>
-            <h1 className="text-3xl font-bold text-gray-100">Slot Machine</h1>
-            <p className="text-sm text-gray-400">
-              Spin the reel to pick a random compliant user. Eligible: {eligibleUsers.length}
+            <p className="text-xs uppercase tracking-widest text-green-500">Draw</p>
+            <h1 className="text-3xl font-bold text-green-100">Radar Sweep</h1>
+            <p className="text-sm text-green-500/70">
+              {loading
+                ? "Loading contacts…"
+                : `${eligibleUsers.length} contact${eligibleUsers.length !== 1 ? "s" : ""} on scope`}
             </p>
           </div>
           <div className="flex gap-3">
-            <Link href="/" className="text-sm text-teal-300 underline">
-              Back to dashboard
+            <Link href="/" className="text-sm text-green-400 underline">
+              Dashboard
             </Link>
             <button
               onClick={loadEligible}
-              className="px-3 py-2 text-sm rounded-md border border-teal-500 text-teal-200 bg-[#111827] hover:bg-[#0f172a]"
+              className="px-3 py-2 text-sm rounded border border-green-700 text-green-300 hover:bg-green-900/30"
             >
-              Refresh list
+              Refresh
             </button>
           </div>
         </div>
 
         {error && (
-          <div className="rounded-lg border border-red-500/50 bg-red-900/30 p-4 text-sm text-red-200">
+          <div className="rounded-lg border border-red-500/50 bg-red-900/20 p-4 text-sm text-red-300">
             {error}
           </div>
         )}
-
         {!loading && !eligibleUsers.length && !error && (
-          <div className="rounded-lg border border-yellow-500/50 bg-yellow-900/30 p-4 text-sm text-yellow-200">
+          <div className="rounded-lg border border-yellow-600/40 bg-yellow-900/20 p-4 text-sm text-yellow-300">
             No eligible users for this week's draw.
           </div>
         )}
 
-        <div
-          className="relative rounded-2xl border border-teal-500/60 shadow-[0_0_25px_rgba(34,211,238,0.35)] p-6 bg-[#0d1117]"
-          style={scanlineStyle}
-        >
-          <div
-            className="relative mx-auto w-full max-w-md overflow-hidden rounded-xl"
-            style={{
-              height: REEL_HEIGHT,
-              border: "1px solid rgba(56,189,248,0.4)",
-              boxShadow: "0 0 20px rgba(34,211,238,0.25)",
-              backgroundColor: "#0f172a",
-            }}
-          >
-            <div className="absolute inset-0">
-              {names.map((name, idx) => (
-                <div
-                  key={`${idx}-${name}`}
-                  className="flex items-center justify-center text-sm font-semibold"
-                  style={{
-                    height: ROW_HEIGHT,
-                    color: idx === CENTER_INDEX ? "#fbbf24" : "#cbd5f5",
-                    textShadow:
-                      idx === CENTER_INDEX ? "0 0 14px rgba(251,191,36,0.9)" : "none",
-                  }}
-                >
-                  {name}
-                </div>
-              ))}
-            </div>
-            <div
-              className="pointer-events-none absolute left-0 right-0"
-              style={{
-                top: CENTER_INDEX * ROW_HEIGHT,
-                height: ROW_HEIGHT,
-                borderTop: "1px solid rgba(56,189,248,0.8)",
-                borderBottom: "1px solid rgba(56,189,248,0.8)",
-                boxShadow: "0 0 15px rgba(56,189,248,0.35)",
-                background:
-                  "linear-gradient(90deg, rgba(56,189,248,0.05), rgba(56,189,248,0.15), rgba(56,189,248,0.05))",
-              }}
-            ></div>
-          </div>
+        {/* Radar */}
+        <div className="flex flex-col items-center gap-4 rounded-2xl border border-green-800/50 shadow-[0_0_40px_rgba(0,255,70,0.08)] bg-[#000e02] p-6">
+          <canvas
+            ref={canvasRef}
+            width={500}
+            height={500}
+            style={{ maxWidth: "100%", borderRadius: "50%" }}
+          />
 
-          <div className="mt-6 flex justify-center gap-3">
-            <button
-              onClick={startSpin}
-              disabled={!eligibleUsers.length || loading || spinning}
-              className="inline-flex items-center px-5 py-3 rounded-md bg-teal-600 text-white text-sm font-semibold shadow-sm hover:bg-teal-500 disabled:opacity-50"
-            >
-              {spinning ? "Spinning..." : "Spin"}
-            </button>
-          </div>
+          <button
+            onClick={startSpin}
+            disabled={!eligibleUsers.length || loading || spinning}
+            className="px-8 py-3 rounded border border-green-600 bg-green-900/40 text-green-200 text-sm font-semibold hover:bg-green-800/50 disabled:opacity-40 tracking-widest uppercase"
+          >
+            {spinning ? "Scanning…" : "Initiate Scan"}
+          </button>
 
           {winner && (
-            <div className="mt-4 text-center" aria-live="polite">
-              <p className="text-sm text-gray-300">Winner</p>
-              <p className="relative inline-flex items-center justify-center text-2xl font-bold text-amber-300 drop-shadow-[0_0_14px_rgba(251,191,36,0.85)]">
-                <span className="absolute inset-0" aria-hidden="true">
-                  <span className="burst-layer burst-layer-1" />
-                  <span className="burst-layer burst-layer-2" />
-                </span>
+            <div className="text-center" aria-live="polite">
+              <p className="text-xs uppercase tracking-widest text-green-600 mb-1">
+                Target Acquired
+              </p>
+              <p className="text-3xl font-bold text-red-400 animate-pulse drop-shadow-[0_0_18px_rgba(255,50,50,0.9)]">
                 {winner}
               </p>
             </div>
           )}
         </div>
       </div>
-      <style jsx global>{`
-        @keyframes flicker {
-          0% { opacity: 0.97; }
-          50% { opacity: 1; }
-          100% { opacity: 0.96; }
-        }
-        .burst-layer {
-          position: absolute;
-          inset: -16px;
-          display: block;
-          border-radius: 50%;
-          background:
-            repeating-conic-gradient(
-              from 0deg,
-              rgba(251,191,36,0.55) 0deg,
-              rgba(251,191,36,0.55) 6deg,
-              transparent 6deg,
-              transparent 12deg
-            );
-          mask-image: radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.05) 32%, rgba(0,0,0,0.9) 60%);
-          animation: spin-burst 2s linear infinite;
-          opacity: 0.8;
-        }
-        .burst-layer-2 {
-          inset: -10px;
-          opacity: 0.6;
-          animation-duration: 1.6s;
-          animation-direction: reverse;
-        }
-        @keyframes spin-burst {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
-      {celebrate && (
-        <div className="fixed inset-0 pointer-events-none flex items-center justify-center">
-          <div className="burst-layer burst-layer-1" style={{ width: 220, height: 220 }} />
-          <div className="burst-layer burst-layer-2" style={{ width: 170, height: 170 }} />
-        </div>
-      )}
     </div>
   );
 }
