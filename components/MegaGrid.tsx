@@ -246,7 +246,10 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
     : "grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6 xl:grid-cols-8";
 
   return (
-    <div className={wrapperClassName}>
+    <div className={`${wrapperClassName} relative overflow-hidden`}>
+      {standalone && (
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:22px_22px]" />
+      )}
       <div className={shellClassName}>
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
@@ -297,9 +300,6 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
           <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
             Eligible: {eligibleUsers.length}
           </span>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
-            Phase: {phase}
-          </span>
           {!hasBlobBaseUrl && (
             <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-amber-200">
               `NEXT_PUBLIC_BLOB_BASE_URL` not set
@@ -320,7 +320,9 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
         )}
 
         <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/60 p-3 shadow-[inset_0_0_80px_rgba(34,211,238,0.08)]">
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:22px_22px]" />
+          {!standalone && (
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:22px_22px]" />
+          )}
 
           {loading ? (
             <div className="flex min-h-[18rem] items-center justify-center text-sm font-semibold uppercase tracking-[0.3em] text-slate-300">
