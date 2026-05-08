@@ -237,21 +237,20 @@ export default function SlideDeckVisualizer() {
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#fff7e6_0%,#efe6d1_38%,#e7dbc1_100%)] px-4 py-6 text-stone-900 sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <section className="overflow-hidden rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 shadow-[0_25px_80px_rgba(120,93,35,0.12)] backdrop-blur">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.34em] text-amber-700">
-                Trend-First Reporting
+                Current Week Dashboard
               </p>
-              <h1 className="mt-3 text-4xl font-black tracking-tight text-stone-950 sm:text-5xl">
-                Compliance Storyboard
+              <h1 className="mt-3 text-3xl font-black tracking-tight text-stone-950 sm:text-4xl">
+                Incomplete Sessions Requiring Action
               </h1>
-              <p className="mt-4 text-sm leading-6 text-stone-600">
-                Start with trend movement, then drill into repeat exposure, status mix, and module hotspots.
-                The goal is to explain what changed this week and which users need action next.
+              <p className="mt-3 text-sm leading-6 text-stone-600">
+                The homepage starts with the current-week incomplete list. Trend and supporting analytics remain below.
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[420px]">
+            <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[380px]">
               <QuickStat
                 label="Selected Week"
                 value={latestWeekLabel}
@@ -279,7 +278,7 @@ export default function SlideDeckVisualizer() {
             </div>
           </div>
 
-          <div className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-3">
               <label className="text-sm font-medium text-stone-700" htmlFor="week-select">
                 Week
@@ -342,6 +341,122 @@ export default function SlideDeckVisualizer() {
             </div>
           </section>
         ) : null}
+
+        <section className="rounded-[2rem] border border-stone-300/70 bg-white/85 p-6 shadow-[0_25px_70px_rgba(120,93,35,0.1)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">Current Week List</p>
+              <h2 className="mt-2 text-3xl font-black text-stone-950">People With Incomplete Sessions</h2>
+              <p className="mt-2 text-sm text-stone-600">
+                Open the dashboard and this list is immediately available. Use filters to narrow the current week before moving to lower-page analytics.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
+                Search
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
+                  placeholder="Name or email"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
+                Status filter
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="not started">Not Started</option>
+                  <option value="in progress">In Progress</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
+                Title hotspot
+                <select
+                  value={titleFilter}
+                  onChange={(event) => setTitleFilter(event.target.value)}
+                  className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
+                >
+                  <option value="">All titles</option>
+                  {titleHotspots.map((title) => (
+                    <option key={title.title} value={title.title}>
+                      {title.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-6 overflow-hidden rounded-[1.8rem] border border-stone-200">
+            <div className="max-h-[26rem] overflow-auto">
+              <table className="min-w-full divide-y divide-stone-200 text-sm">
+                <thead className="sticky top-0 bg-stone-100 text-left text-xs uppercase tracking-[0.22em] text-stone-500">
+                  <tr>
+                    <th className="px-4 py-3">User</th>
+                    <th className="px-4 py-3">Narrative</th>
+                    <th className="px-4 py-3">Checkpoint</th>
+                    <th className="px-4 py-3">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100 bg-white">
+                  {visibleProfiles.map((profile) => (
+                    <tr key={profile.key}>
+                      <td className="px-4 py-4 align-top">
+                        <div className="font-semibold text-stone-900">{profile.name}</div>
+                        <div className="mt-1 text-xs text-stone-500">{profile.email || "No email available"}</div>
+                      </td>
+                      <td className="px-4 py-4 align-top text-stone-600">
+                        <div className="font-medium text-stone-900">{profile.sessionCount} incomplete sessions</div>
+                        <div className="mt-1">
+                          Oldest open item:{" "}
+                          {profile.oldestOpenDays !== null ? `${profile.oldestOpenDays} days` : "Unknown"}
+                        </div>
+                        <div className="mt-1">
+                          Change vs prior week:{" "}
+                          {profile.deltaFromPrevWeek === null ? "No comparison" : formatDelta(profile.deltaFromPrevWeek)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 align-top text-stone-600">
+                        {profile.checkpoint ? (
+                          <>
+                            <div className="font-medium text-stone-900">
+                              {profile.checkpoint.checkpointsOnList} appearances
+                            </div>
+                            <div className="mt-1 text-xs text-stone-500">
+                              Last seen {profile.checkpoint.lastSeenCheckpointDate ?? "Unknown"}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-stone-400">No checkpoint history</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 align-top">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedUserKey(profile.key)}
+                          className="rounded-full border border-stone-300 bg-stone-50 px-4 py-2 text-sm font-semibold text-stone-700 transition hover:border-stone-500 hover:bg-stone-100"
+                        >
+                          Open profile
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!visibleProfiles.length ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-10 text-center text-stone-500">
+                        No users match the current filter combination.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
 
         <section className="grid gap-6 xl:grid-cols-[1.35fr_0.9fr]">
           <Panel
@@ -547,119 +662,6 @@ export default function SlideDeckVisualizer() {
           </Panel>
         </section>
 
-        <section className="rounded-[2rem] border border-stone-300/70 bg-white/85 p-6 shadow-[0_25px_70px_rgba(120,93,35,0.1)]">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">User Narrative</p>
-              <h2 className="mt-2 text-3xl font-black text-stone-950">Current Week Drill-Down</h2>
-              <p className="mt-2 text-sm text-stone-600">
-                Filter by segment, status, hotspot title, or search by user. Open a profile for the full narrative.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
-                Search
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
-                  placeholder="Name or email"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
-                Status filter
-                <select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
-                  className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
-                >
-                  <option value="all">All statuses</option>
-                  <option value="not started">Not Started</option>
-                  <option value="in progress">In Progress</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
-                Title hotspot
-                <select
-                  value={titleFilter}
-                  onChange={(event) => setTitleFilter(event.target.value)}
-                  className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
-                >
-                  <option value="">All titles</option>
-                  {titleHotspots.map((title) => (
-                    <option key={title.title} value={title.title}>
-                      {title.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </div>
-
-          <div className="mt-6 overflow-hidden rounded-[1.8rem] border border-stone-200">
-            <table className="min-w-full divide-y divide-stone-200 text-sm">
-              <thead className="bg-stone-100 text-left text-xs uppercase tracking-[0.22em] text-stone-500">
-                <tr>
-                  <th className="px-4 py-3">User</th>
-                  <th className="px-4 py-3">Narrative</th>
-                  <th className="px-4 py-3">Checkpoint</th>
-                  <th className="px-4 py-3">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100 bg-white">
-                {visibleProfiles.map((profile) => (
-                  <tr key={profile.key}>
-                    <td className="px-4 py-4 align-top">
-                      <div className="font-semibold text-stone-900">{profile.name}</div>
-                      <div className="mt-1 text-xs text-stone-500">{profile.email || "No email available"}</div>
-                    </td>
-                    <td className="px-4 py-4 align-top text-stone-600">
-                      <div className="font-medium text-stone-900">{profile.sessionCount} incomplete sessions</div>
-                      <div className="mt-1">
-                        Oldest open item:{" "}
-                        {profile.oldestOpenDays !== null ? `${profile.oldestOpenDays} days` : "Unknown"}
-                      </div>
-                      <div className="mt-1">
-                        Change vs prior week:{" "}
-                        {profile.deltaFromPrevWeek === null ? "No comparison" : formatDelta(profile.deltaFromPrevWeek)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 align-top text-stone-600">
-                      {profile.checkpoint ? (
-                        <>
-                          <div className="font-medium text-stone-900">
-                            {profile.checkpoint.checkpointsOnList} appearances
-                          </div>
-                          <div className="mt-1 text-xs text-stone-500">
-                            Last seen {profile.checkpoint.lastSeenCheckpointDate ?? "Unknown"}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-stone-400">No checkpoint history</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 align-top">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedUserKey(profile.key)}
-                        className="rounded-full border border-stone-300 bg-stone-50 px-4 py-2 text-sm font-semibold text-stone-700 transition hover:border-stone-500 hover:bg-stone-100"
-                      >
-                        Open profile
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {!visibleProfiles.length ? (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-stone-500">
-                      No users match the current filter combination.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
       </div>
 
       <UserDetailDialog profile={selectedProfile} onClose={() => setSelectedUserKey(null)} />
