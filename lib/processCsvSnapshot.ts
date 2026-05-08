@@ -1,11 +1,11 @@
 import { put } from '@vercel/blob';
-import { parse } from 'csv-parse/sync';
 import { getCsv, SNAPSHOT_PATH } from '@/lib/storage';
 import { buildSnapshotPath, getIsoWeekId, upsertHistoryEntry } from '@/lib/history';
 import { findPrevWeekId, saveWeekMetrics, type WeekMetrics } from '@/lib/metrics';
 import { fetchSnapshotByWeek } from '@/lib/snapshots';
 import { getCheckpointInfo } from "@/lib/checkpoints";
 import { upsertCheckpointFromSnapshot } from "@/lib/checkpointHistory";
+import { parseCsvText } from "@/lib/csv";
 
 export type ParsedRow = {
   email: string;
@@ -55,48 +55,11 @@ function normalizeEmail(value: string | undefined | null) {
   return normalize(value).toLowerCase();
 }
 
-function detectDelimiter(headerLine: string) {
-  const delimiters = [',', '\t', ';', '|'];
-  const scored = delimiters.map((d) => ({
-    d,
-    count: (headerLine.match(new RegExp(`\\${d}`, 'g')) || []).length,
-  }));
-  const best = scored.sort((a, b) => b.count - a.count)[0];
-  return best && best.count > 0 ? best.d : ',';
-}
-
-function parseCsv(text: string): { headers: string[]; rows: Record<string, string>[] } {
-  const headerLine = text.split(/\r?\n/).find((line) => line.trim().length > 0) ?? '';
-  const delimiter = detectDelimiter(headerLine);
-
-  const headers = ((parse(headerLine, {
-    bom: true,
-    delimiter,
-    relax_column_count: true,
-    skip_empty_lines: true,
-  }) as string[][])[0] ?? []).map((header) => (header ?? '').trim());
-
-  if (!headers.length || headers.every((header) => !header)) {
-    throw new Error('No headers detected in CSV');
-  }
-
-  const rows = parse(text, {
-    bom: true,
-    columns: (headers: string[]) => headers.map((h) => (h ?? '').trim()),
-    skip_empty_lines: true,
-    relax_column_count: true,
-    delimiter,
-    info: false,
-  }) as Record<string, string>[];
-
-  return { headers: headers.filter(Boolean), rows };
-}
-
 function isIncomplete(status: string) {
   return INCOMPLETE_STATUSES.includes(status.toLowerCase());
 }
 
-function buildParsedRows(rows: Record<string, string>[], mapping: FieldMapping): ParsedRow[] {
+export function buildParsedRows(rows: Record<string, string>[], mapping: FieldMapping): ParsedRow[] {
   return rows
     .map((row) => {
       const email = normalizeEmail(row[mapping.email]);
@@ -125,11 +88,21 @@ function buildParsedRows(rows: Record<string, string>[], mapping: FieldMapping):
     .filter((row) => isIncomplete((row as ParsedRow).status)) as ParsedRow[];
 }
 
-export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping): Promise<Snapshot> {
-  const csvText = await getCsv(fileUrl);
-  const { rows, headers } = parseCsv(csvText);
+export function previewSnapshotCsv(
+  text: string,
+  mapping: FieldMapping
+): {
+  headers: string[];
+  sourceRowCount: number;
+  acceptedRowCount: number;
+  rejectedRowCount: number;
+  rejectedRows: Array<{ rowNumber: number; reason: string }>;
+  inferredWeekId: string;
+  inferredCheckpoint: ReturnType<typeof getCheckpointInfo>;
+} {
+  const { rows, headers } = parseCsvText(text);
+  const required = ["email", "firstName", "lastName", "status", "title", "sentDate"] as const;
 
-  const required = ['email', 'firstName', 'lastName', 'status', 'title', 'sentDate'] as const;
   for (const key of required) {
     const header = mapping[key];
     if (!header) {
@@ -139,6 +112,49 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
       throw new Error(`Mapping refers to missing column "${header}"`);
     }
   }
+
+  const rejectedRows: Array<{ rowNumber: number; reason: string }> = [];
+  rows.forEach((row, index) => {
+    const email = normalizeEmail(row[mapping.email]);
+    const firstName = normalize(row[mapping.firstName]);
+    const lastName = normalize(row[mapping.lastName]);
+    const status = normalize(row[mapping.status]);
+
+    if (!email) {
+      rejectedRows.push({ rowNumber: index + 2, reason: "Missing email" });
+      return;
+    }
+    if (!firstName && !lastName) {
+      rejectedRows.push({ rowNumber: index + 2, reason: "Missing name" });
+      return;
+    }
+    if (!status) {
+      rejectedRows.push({ rowNumber: index + 2, reason: "Missing status" });
+      return;
+    }
+    if (!isIncomplete(status)) {
+      rejectedRows.push({ rowNumber: index + 2, reason: "Status is complete" });
+    }
+  });
+
+  const parsedRows = buildParsedRows(rows, mapping);
+  const uploadedAt = new Date();
+
+  return {
+    headers,
+    sourceRowCount: rows.length,
+    acceptedRowCount: parsedRows.length,
+    rejectedRowCount: rejectedRows.length,
+    rejectedRows: rejectedRows.slice(0, 12),
+    inferredWeekId: getIsoWeekId(uploadedAt),
+    inferredCheckpoint: getCheckpointInfo(uploadedAt),
+  };
+}
+
+export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping): Promise<Snapshot> {
+  const csvText = await getCsv(fileUrl);
+  const { rows } = parseCsvText(csvText);
+  previewSnapshotCsv(csvText, mapping);
 
   const parsedRows = buildParsedRows(rows, mapping);
   const uploadedAt = new Date();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import Link from "next/link";
 
 type ListsResponse = {
@@ -91,7 +91,7 @@ export function MegaGrid({
   const [phase, setPhase] = useState<"idle" | "darting" | "slowing" | "locked">(
     "idle"
   );
-const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, number>>({});
+  const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, number>>({});
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,6 +102,9 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
   const winner =
     winnerIndex !== null && winnerIndex >= 0 ? eligibleUsers[winnerIndex] : null;
   const hasBlobBaseUrl = blobBaseUrl.trim().length > 0;
+  const revealDialogRef = useRef<HTMLDivElement | null>(null);
+  const revealCloseRef = useRef<HTMLButtonElement | null>(null);
+  const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
@@ -239,21 +242,59 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
     ? "min-h-screen bg-[radial-gradient(circle_at_top,#14324a_0%,#081018_45%,#04070b_100%)] px-4 py-8 md:px-6"
     : "bg-[radial-gradient(circle_at_top,#16324a_0%,#0d1721_48%,#091018_100%)]";
   const shellClassName = standalone
-    ? "mx-auto flex w-full max-w-7xl flex-col gap-6"
+    ? "mx-auto flex w-full max-w-[1500px] flex-col gap-6"
     : "flex w-full flex-col gap-5 rounded-3xl border border-cyan-400/20 p-5 shadow-[0_20px_80px_rgba(8,145,178,0.2)]";
   const gridShellClassName = standalone
-    ? "relative p-0"
+    ? "relative rounded-[2rem] border border-white/10 bg-slate-950/50 p-2 sm:p-3"
     : "relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/60 p-3 shadow-[inset_0_0_80px_rgba(34,211,238,0.08)]";
   const gridClassName = standalone
-    ? "grid grid-cols-5 gap-1.5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12"
+    ? "grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12"
     : "grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6 xl:grid-cols-8";
+
+  const handleRevealKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (!showReveal || !revealDialogRef.current) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeReveal();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = revealDialogRef.current.querySelectorAll<HTMLElement>(
+      'button, [href], [tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+
+  useEffect(() => {
+    if (!showReveal) return;
+    lastFocusedElementRef.current = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    revealCloseRef.current?.focus();
+    const listener = (event: KeyboardEvent) => handleRevealKeyDown(event);
+    document.addEventListener("keydown", listener);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", listener);
+      lastFocusedElementRef.current?.focus?.();
+    };
+  }, [showReveal]);
 
   return (
     <div className={`${wrapperClassName} relative overflow-hidden`}>
       {standalone && (
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:22px_22px]" />
       )}
-      <div className={`${shellClassName} ${standalone ? "origin-top scale-[0.85]" : ""}`}>
+      <div className={shellClassName}>
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             {standalone ? null : (
@@ -284,7 +325,7 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
             <button
               type="button"
               onClick={() => void loadEligibleUsers()}
-              className="rounded-full border border-slate-500/40 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/5"
+              className="rounded-full border border-slate-500/40 px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-white/5"
             >
               Refresh List
             </button>
@@ -292,7 +333,7 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
               type="button"
               onClick={startDraw}
               disabled={loading || !eligibleUsers.length || isRunning}
-              className="rounded-full bg-cyan-400 px-5 py-2 text-sm font-black text-slate-950 shadow-[0_0_35px_rgba(34,211,238,0.45)] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-500"
+              className="rounded-full bg-cyan-400 px-5 py-3 text-sm font-black text-slate-950 shadow-[0_0_35px_rgba(34,211,238,0.45)] transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-500"
             >
               {isRunning ? "Drawing..." : "Start Draw"}
             </button>
@@ -383,7 +424,13 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
       {showReveal && winner && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/92 px-4 backdrop-blur-md">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(34,211,238,0.28),transparent_40%)]" />
-          <div className="relative mx-auto flex w-full max-w-3xl flex-col items-center text-center">
+          <div
+            ref={revealDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="winner-title"
+            className="relative mx-auto flex w-full max-w-3xl flex-col items-center text-center"
+          >
             <div className="mb-4 rounded-full border border-amber-300/30 bg-amber-300/10 px-5 py-2 text-sm font-black uppercase tracking-[0.24em] text-amber-100">
               Winner: $10 Gift Card!
             </div>
@@ -401,12 +448,13 @@ const [imageVariantIndexMap, setImageVariantIndexMap] = useState<Record<string, 
             <p className="mt-8 text-sm font-semibold uppercase tracking-[0.32em] text-cyan-200">
               Selected Employee
             </p>
-            <h3 className="mt-3 text-4xl font-black tracking-tight text-white sm:text-6xl">
+            <h3 id="winner-title" className="mt-3 text-4xl font-black tracking-tight text-white sm:text-6xl">
               {winner}
             </h3>
 
             <div className="mt-8 flex gap-3">
               <button
+                ref={revealCloseRef}
                 type="button"
                 onClick={closeReveal}
                 className="rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white hover:bg-white/5"

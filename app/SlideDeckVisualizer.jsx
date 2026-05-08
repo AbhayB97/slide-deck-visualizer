@@ -1,792 +1,897 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useEffectEvent, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  LayoutGrid,
-  List,
   AlertCircle,
+  ArrowRight,
+  ChevronRight,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  buildCheckpointPanelModel,
+  buildComparisonModel,
+  buildStatusModel,
+  buildTitleHotspots,
+  buildTrendModel,
+  buildUserProfiles,
+  getPendingDays,
+  normalizeNameKey,
+  shortName,
+} from "@/lib/reporting";
 
 const NO_SNAPSHOT_MESSAGE =
-  "No snapshot available. Ask the admin to upload this week's CSV.";
+  "No weekly snapshot is available yet. Upload a file from the admin workflow to populate reporting.";
 
-/* ---------- Helpers ---------- */
-const shortName = (fullName) => {
-  const safeName = typeof fullName === "string" ? fullName : "";
-  const parts = safeName.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "Unknown";
-  const first = parts[0] || "";
-  const lastInitial = parts[1] ? parts[1][0].toUpperCase() + "." : "";
-  return `${first} ${lastInitial}`.trim();
-};
+function formatPercent(value) {
+  if (!Number.isFinite(value)) return "--";
+  return `${Math.round(value)}%`;
+}
 
-const normalizeNameKey = (fullName) => {
-  const safeName = typeof fullName === "string" ? fullName : "";
-  return safeName
-    .trim()
-    .replace(/\s+/g, " ")
-    .replace(/[.,]/g, "")
-    .toLowerCase();
-};
+function formatDelta(value, suffix = "") {
+  if (!Number.isFinite(value)) return "No comparison";
+  if (value === 0) return `Flat${suffix}`;
+  const direction = value > 0 ? "+" : "";
+  return `${direction}${Math.round(value * 10) / 10}${suffix}`;
+}
 
-const isOffender = (row) => {
-  if (!row?.status) return false;
-  const s = row.status.toLowerCase();
-  return s === "not started" || s === "in progress";
-};
-
-const pendingDays = (sentDate) => {
-  const sent = new Date(sentDate);
-  if (Number.isNaN(sent.getTime())) return "N/A";
-  return Math.floor((Date.now() - sent.getTime()) / 86400000);
-};
-
-const toValidDate = (value) => {
+function formatDate(value) {
   const date = value ? new Date(value) : null;
-  return date && !Number.isNaN(date.getTime()) ? date : null;
-};
-
-const clamp01 = (value) => Math.min(1, Math.max(0, value));
-
-const hexToRgb = (hex) => {
-  const safe = hex.replace("#", "");
-  if (safe.length !== 6) return { r: 0, g: 0, b: 0 };
-  const num = parseInt(safe, 16);
-  return {
-    r: (num >> 16) & 255,
-    g: (num >> 8) & 255,
-    b: num & 255,
-  };
-};
-
-const rgbToHex = ({ r, g, b }) => {
-  const toHex = (v) => v.toString(16).padStart(2, "0");
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-};
-
-const mixColors = (aHex, bHex, amount) => {
-  const a = hexToRgb(aHex);
-  const b = hexToRgb(bHex);
-  const t = clamp01(amount);
-  return rgbToHex({
-    r: Math.round(a.r + (b.r - a.r) * t),
-    g: Math.round(a.g + (b.g - a.g) * t),
-    b: Math.round(a.b + (b.b - a.b) * t),
+  if (!date || Number.isNaN(date.getTime())) return "Unknown";
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   });
-};
+}
 
-const rampColor = (value, min, max) => {
-  const blue = "#3b82f6";
-  const yellow = "#facc15";
-  const red = "#ef4444";
-  if (max <= min) {
-    return yellow;
-  }
-  const ratio = clamp01((value - min) / (max - min));
-  if (ratio <= 0.5) {
-    return mixColors(blue, yellow, ratio / 0.5);
-  }
-  return mixColors(yellow, red, (ratio - 0.5) / 0.5);
-};
+function statusTone(status) {
+  if (status === "not started") return "bg-rose-100 text-rose-800";
+  if (status === "in progress") return "bg-amber-100 text-amber-800";
+  return "bg-stone-100 text-stone-700";
+}
 
-const heatmapColors = (value, min, max) => {
-  const base = rampColor(value, min, max);
-  return {
-    base,
-    bg: mixColors(base, "#ffffff", 0.85),
-    border: mixColors(base, "#ffffff", 0.45),
-  };
-};
-
-/* ---------- Main Component ---------- */
 export default function SlideDeckVisualizer() {
+  const [selectedWeek, setSelectedWeek] = useState("");
   const [snapshot, setSnapshot] = useState(null);
-  const [loadingSnapshot, setLoadingSnapshot] = useState(true);
-  const [loadingHistory, setLoadingHistory] = useState(true);
-  const [error, setError] = useState(null);
-  const [statusNotice, setStatusNotice] = useState(null); // friendly states for missing/empty snapshots
   const [history, setHistory] = useState([]);
-  const [selectedWeek, setSelectedWeek] = useState(null);
-  const [metricsPrevWeekId, setMetricsPrevWeekId] = useState(null);
-  const [deltaByName, setDeltaByName] = useState({});
-  const [loadingMetrics, setLoadingMetrics] = useState(false);
-
-  const [viewMode, setViewMode] = useState("grid");
-  const [selectedUser, setSelectedUser] = useState(null);
   const [masterCount, setMasterCount] = useState(0);
+  const [metrics, setMetrics] = useState(null);
+  const [checkpoints, setCheckpoints] = useState({ users: [], timeline: [], summary: null });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [statusNotice, setStatusNotice] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [segmentFilter, setSegmentFilter] = useState("all");
+  const [titleFilter, setTitleFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [selectedUserKey, setSelectedUserKey] = useState(null);
 
-  const handleTileKeyDown = (event, name) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      setSelectedUser(name);
-    }
-  };
+  const orderedWeeks = [...history].sort((a, b) =>
+    String(b?.weekId ?? "").localeCompare(String(a?.weekId ?? ""), undefined, { numeric: true })
+  );
 
-  const exportSnapshot = () => {
-    if (!snapshot) return;
-    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = snapshot.weekId
-      ? `snapshot-${snapshot.weekId}.json`
-      : "snapshot.json";
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  /* ---------- Load snapshots & history ---------- */
-  async function loadSnapshot(weekId = null) {
+  async function loadDashboard(nextWeek = selectedWeek) {
     try {
-      setLoadingSnapshot(true);
+      setLoading(true);
       setError(null);
-      setStatusNotice(null);
-      const endpoint = weekId
-        ? `/api/snapshot?week=${encodeURIComponent(weekId)}`
+      const [historyRes, listsRes, checkpointRes] = await Promise.all([
+        fetch("/api/history"),
+        fetch("/api/current-lists"),
+        fetch("/api/checkpoints"),
+      ]);
+
+      const historyJson = await historyRes.json().catch(() => ({}));
+      const listsJson = await listsRes.json().catch(() => ({}));
+      const checkpointJson = await checkpointRes.json().catch(() => ({}));
+
+      const weeks = Array.isArray(historyJson?.history?.weeks) ? historyJson.history.weeks : [];
+      const resolvedWeek =
+        nextWeek || weeks[0]?.weekId || snapshot?.weekId || "";
+      const snapshotEndpoint = resolvedWeek
+        ? `/api/snapshot?week=${encodeURIComponent(resolvedWeek)}`
         : "/api/latest-snapshot";
-      const res = await fetch(endpoint);
-      const json = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        const message =
-          weekId === null
-            ? NO_SNAPSHOT_MESSAGE
-            : json?.error || "Unable to load the requested snapshot.";
-        setSnapshot(null);
-        setStatusNotice({ type: "missing", message });
-        return;
-      }
+      const [snapshotRes, metricsRes] = await Promise.all([
+        fetch(snapshotEndpoint),
+        resolvedWeek ? fetch(`/api/metrics?week=${encodeURIComponent(resolvedWeek)}`) : Promise.resolve(null),
+      ]);
 
-      const snapshotData = json?.snapshot ?? json ?? {};
-      const parsed =
-        Array.isArray(snapshotData?.parsedRows) && snapshotData.parsedRows.length
-          ? snapshotData.parsedRows
-          : Array.isArray(snapshotData?.parsedRows)
-          ? []
-          : null;
+      const snapshotJson = await snapshotRes.json().catch(() => ({}));
+      const metricsJson = metricsRes ? await metricsRes.json().catch(() => ({})) : {};
 
-      if (!parsed) {
-        setSnapshot(null);
-        setStatusNotice({ type: "missing", message: NO_SNAPSHOT_MESSAGE });
-        return;
-      }
-
-      setSelectedUser(null);
-      setSnapshot({ ...snapshotData, parsedRows: parsed });
-      if (snapshotData.weekId) {
-        setSelectedWeek(snapshotData.weekId);
-      }
-
-      if (!parsed.length) {
-        setStatusNotice({
-          type: "empty",
-          message: "100% completion rate. Keep up the good work.",
-        });
-      } else {
-        setStatusNotice(null);
-      }
-    } catch (err) {
-      const fallback =
-        weekId === null
-          ? NO_SNAPSHOT_MESSAGE
-          : "Unable to load snapshot right now. Please try again.";
-      setStatusNotice({ type: "missing", message: fallback });
-      setError(err?.message || fallback);
-      setSnapshot(null);
-    } finally {
-      setLoadingSnapshot(false);
-    }
-  }
-
-  async function loadHistory() {
-    try {
-      setLoadingHistory(true);
-      setError(null);
-      setStatusNotice(null);
-      const res = await fetch("/api/history");
-      if (!res.ok) {
-        throw new Error("Failed to load history");
-      }
-      const json = await res.json();
-      const weeks = json?.history?.weeks ?? [];
       setHistory(weeks);
-      const newestWeek = weeks[0]?.weekId ?? null;
-      const preferredWeek =
-        selectedWeek && weeks.some((w) => w.weekId === selectedWeek)
-          ? selectedWeek
-          : newestWeek;
-      const targetWeek = preferredWeek ?? null;
-      setSelectedWeek(targetWeek);
-      await loadSnapshot(targetWeek);
-    } catch (err) {
-      setHistory([]);
-      setError(null);
-      await loadSnapshot(null);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }
+      setMasterCount(Number.isFinite(listsJson?.masterCount) ? listsJson.masterCount : 0);
+      setCheckpoints({
+        users: Array.isArray(checkpointJson?.users) ? checkpointJson.users : [],
+        timeline: Array.isArray(checkpointJson?.timeline) ? checkpointJson.timeline : [],
+        summary: checkpointJson?.summary ?? null,
+      });
 
-  useEffect(() => {
-    loadHistory();
-  }, []);
-
-  const orderedWeeks = useMemo(() => {
-    const safe = Array.isArray(history) ? [...history] : [];
-    safe.sort((a, b) => {
-      const aTime = new Date(a?.uploadedAt || a?.uploaded || 0).getTime();
-      const bTime = new Date(b?.uploadedAt || b?.uploaded || 0).getTime();
-      const aSafe = Number.isFinite(aTime) ? aTime : 0;
-      const bSafe = Number.isFinite(bTime) ? bTime : 0;
-      if (aSafe !== bSafe) return bSafe - aSafe;
-
-      const aWeek = typeof a?.weekId === "string" ? a.weekId : "";
-      const bWeek = typeof b?.weekId === "string" ? b.weekId : "";
-      return bWeek.localeCompare(aWeek);
-    });
-    return safe;
-  }, [history]);
-
-  const getPrevWeekId = (weekId) => {
-    if (!weekId || !Array.isArray(orderedWeeks) || orderedWeeks.length === 0) return null;
-    const idx = orderedWeeks.findIndex((w) => w?.weekId === weekId);
-    if (idx < 0) return null;
-    for (let i = idx + 1; i < orderedWeeks.length; i += 1) {
-      const candidate = orderedWeeks[i]?.weekId ?? null;
-      if (candidate && candidate !== weekId) return candidate;
-    }
-    return null;
-  };
-
-  async function loadWeekMetrics(weekId) {
-    try {
-      setLoadingMetrics(true);
-      setDeltaByName({});
-      setMetricsPrevWeekId(null);
-      if (!weekId) return;
-      const res = await fetch(`/api/metrics?week=${encodeURIComponent(weekId)}`);
-      if (!res.ok) {
-        // Fallback: compute deltas on the fly if metrics don't exist yet for this week.
-        const prevWeek = getPrevWeekId(weekId);
-        setMetricsPrevWeekId(prevWeek);
-        if (!prevWeek) return;
-
-        const prevRes = await fetch(
-          `/api/snapshot?week=${encodeURIComponent(prevWeek)}`
-        );
-        if (!prevRes.ok) return;
-        const prevJson = await prevRes.json().catch(() => ({}));
-        if (!prevJson?.success || !prevJson?.snapshot) return;
-        const prevRows = Array.isArray(prevJson.snapshot?.parsedRows)
-          ? prevJson.snapshot.parsedRows
-          : [];
-        const prevOffenders = prevRows.filter(isOffender);
-        const prevCounts = {};
-        for (const r of prevOffenders) {
-          const key = normalizeNameKey(r.fullName);
-          if (!key) continue;
-          prevCounts[key] = (prevCounts[key] || 0) + 1;
-        }
-
-        const currentCounts = {};
-        const currentOffenders = offenderRows;
-        for (const r of currentOffenders) {
-          const key = normalizeNameKey(r.fullName);
-          if (!key) continue;
-          currentCounts[key] = (currentCounts[key] || 0) + 1;
-        }
-
-        const deltaMap = {};
-        for (const [key, count] of Object.entries(currentCounts)) {
-          deltaMap[key] = (count || 0) - (prevCounts[key] || 0);
-        }
-        setDeltaByName(deltaMap);
+      if (!snapshotRes.ok || !snapshotJson?.snapshot) {
+        setSnapshot(null);
+        setMetrics(null);
+        setStatusNotice({
+          type: "missing",
+          message: snapshotJson?.error || NO_SNAPSHOT_MESSAGE,
+        });
         return;
       }
-      const json = await res.json().catch(() => ({}));
-      const metrics = json?.metrics;
-      if (!json?.success || !metrics || !Array.isArray(metrics?.users)) return;
 
-      setMetricsPrevWeekId(metrics?.prevWeekId ?? null);
-      const map = {};
-      for (const u of metrics.users) {
-        const name = typeof u?.name === "string" ? u.name.trim() : "";
-        const delta = Number.isFinite(u?.deltaFromPrevWeek) ? u.deltaFromPrevWeek : 0;
-        const key = normalizeNameKey(name);
-        if (!key) continue;
-        map[key] = delta;
-      }
-      setDeltaByName(map);
-    } catch {
-      setDeltaByName({});
-      setMetricsPrevWeekId(null);
+      const nextSnapshot = snapshotJson.snapshot;
+      const parsedRows = Array.isArray(nextSnapshot?.parsedRows) ? nextSnapshot.parsedRows : [];
+
+      setSnapshot({ ...nextSnapshot, parsedRows });
+      setSelectedWeek(nextSnapshot.weekId ?? resolvedWeek);
+      setMetrics(metricsJson?.success ? metricsJson.metrics : null);
+      setStatusNotice(
+        parsedRows.length
+          ? null
+          : {
+              type: "empty",
+              message:
+                "This week has no incomplete rows. That likely means a true clean week, but confirm the CSV and mappings if that looks unusual.",
+            }
+      );
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load dashboard");
     } finally {
-      setLoadingMetrics(false);
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadWeekMetrics(selectedWeek);
-  }, [selectedWeek, orderedWeeks, snapshot?.snapshotId]);
-
-  async function loadLists() {
-    try {
-      const res = await fetch("/api/current-lists");
-      const json = await res.json();
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "Failed to load lists");
-      }
-      setMasterCount(Number.isFinite(json?.masterCount) ? json.masterCount : 0);
-    } catch (err) {
-      setMasterCount(0);
-    }
-  }
-
-  useEffect(() => {
-    loadLists();
+    // The initial load is intentionally one-shot.
+    void loadDashboard("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleWeekChange = (event) => {
-    const week = event.target.value || null;
-    setSelectedWeek(week);
-    loadSnapshot(week);
-  };
-
-  /* ---------- Derived Data from Snapshot ---------- */
   const parsedRows = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
-  const offenderRows = parsedRows.filter(isOffender);
-
-  const offenderCounts = useMemo(() => {
-    const c = {};
-    for (const r of offenderRows) {
-      c[r.fullName] = (c[r.fullName] || 0) + 1;
-    }
-    return c;
-  }, [offenderRows]);
-
-  const data = Object.entries(offenderCounts).map(([name, value]) => ({
-    name: name || "Unknown",
-    value,
-  }));
-
-  const sortedData = [...data].sort((a, b) => b.value - a.value);
-  const totalTasks = sortedData.reduce((a, b) => a + b.value, 0);
-  const averageTasks = sortedData.length
-    ? (totalTasks / sortedData.length).toFixed(1)
-    : 0;
-  const minValue = sortedData.length
-    ? Math.min(...sortedData.map((row) => row.value))
-    : 0;
-  const maxValue = sortedData.length
-    ? Math.max(...sortedData.map((row) => row.value))
-    : 0;
-
-  const selectedSessions = offenderRows.filter(
-    (row) => row.fullName === selectedUser
+  const trendModel = buildTrendModel(orderedWeeks, masterCount);
+  const statusModel = buildStatusModel(parsedRows);
+  const comparisonModel = buildComparisonModel(
+    parsedRows,
+    Array.isArray(metrics?.users) ? metrics.users : [],
+    metrics?.prevWeekId
+  );
+  const titleHotspots = buildTitleHotspots(parsedRows);
+  const checkpointPanel = buildCheckpointPanelModel(checkpoints.users, checkpoints.timeline);
+  const userProfiles = buildUserProfiles(
+    parsedRows,
+    Array.isArray(metrics?.users) ? metrics.users : [],
+    checkpoints.users
   );
 
-  const perfectWeeksCount = useMemo(
-    () =>
-      orderedWeeks.filter((week) => {
-        const incomplete = Number(week?.totalIncomplete ?? week?.offenderCount ?? 0);
-        return Number.isFinite(incomplete) && incomplete === 0;
-      }).length,
-    [orderedWeeks]
-  );
+  const selectedSegmentKeys =
+    segmentFilter !== "all"
+      ? new Set((comparisonModel.buckets?.[segmentFilter] ?? []).map((user) => user.key))
+      : null;
+  const selectedStatusKeys =
+    statusFilter !== "all"
+      ? new Set(
+          (statusModel.usersByStatus?.[statusFilter] ?? []).map((name) => normalizeNameKey(name))
+        )
+      : null;
 
-  const perfectWeekStreak = useMemo(() => {
-    let streak = 0;
-    for (const week of orderedWeeks) {
-      const incomplete = Number(week?.totalIncomplete ?? week?.offenderCount ?? 0);
-      if (!Number.isFinite(incomplete) || incomplete !== 0) {
-        break;
-      }
-      streak += 1;
-    }
-    return streak;
-  }, [orderedWeeks]);
+  const visibleProfiles = Object.values(userProfiles)
+    .filter((profile) => {
+      if (selectedSegmentKeys && !selectedSegmentKeys.has(profile.key)) return false;
+      if (selectedStatusKeys && !selectedStatusKeys.has(profile.key)) return false;
+      if (titleFilter && !profile.titleCounts.some((title) => title.title === titleFilter)) return false;
+      const haystack = `${profile.name} ${profile.email}`.toLowerCase();
+      return haystack.includes(query.trim().toLowerCase());
+    })
+    .sort((a, b) => {
+      const aDays = Number.isFinite(a.oldestOpenDays) ? a.oldestOpenDays : -1;
+      const bDays = Number.isFinite(b.oldestOpenDays) ? b.oldestOpenDays : -1;
+      return b.sessionCount - a.sessionCount || bDays - aDays;
+    });
 
-  const latestPerfectWeek = useMemo(
-    () =>
-      orderedWeeks.find((week) => {
-        const incomplete = Number(week?.totalIncomplete ?? week?.offenderCount ?? 0);
-        return Number.isFinite(incomplete) && incomplete === 0;
-      }) ?? null,
-    [orderedWeeks]
-  );
+  const selectedProfile = selectedUserKey ? userProfiles[selectedUserKey] ?? null : null;
+  const latestTrend = trendModel.latest;
+  const latestWeekLabel = snapshot?.weekId || latestTrend?.weekId || "Latest week";
 
-  const daysSinceLastPerfectWeek = useMemo(() => {
-    if (perfectWeekStreak > 0) return 0;
-    const uploadedAt = toValidDate(latestPerfectWeek?.uploadedAt ?? latestPerfectWeek?.uploaded);
-    if (!uploadedAt) return null;
-    return Math.max(0, Math.floor((Date.now() - uploadedAt.getTime()) / 86400000));
-  }, [latestPerfectWeek, perfectWeekStreak]);
-
-  const uploadedLabel = snapshot?.uploadedAt
-    ? new Date(snapshot.uploadedAt).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
-    : null;
-
-  const barColor = (v) => rampColor(v, minValue, maxValue);
-
-  /* ---------- UI States ---------- */
-  if (loadingSnapshot || loadingHistory) {
+  if (loading) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center text-gray-600"
-        role="status"
-        aria-live="polite"
-      >
-        <Loader2 className="animate-spin mr-3" /> Loading dashboard...
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#f8f0da_0%,#ede2cc_42%,#e5d7bb_100%)] text-stone-700">
+        <Loader2 className="mr-3 h-5 w-5 animate-spin" /> Loading reporting surface...
       </div>
     );
   }
 
-  if (error && !statusNotice) {
+  if (error) {
     return (
-      <div
-        className="min-h-screen flex flex-col items-center justify-center text-red-700"
-        aria-live="assertive"
-      >
-        <AlertCircle size={48} className="mb-4" />
-        <p className="text-xl font-bold">Cannot load dashboard</p>
-        <p className="mt-2">{error}</p>
-        <p className="text-sm mt-4 text-gray-500">
-          Make sure an admin uploaded a CSV via <code>/admin/upload</code>.
-        </p>
-        <button
-          onClick={loadHistory}
-          className="mt-6 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800"
-          aria-label="Retry loading dashboard"
-        >
-          Retry
-        </button>
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#f8f0da_0%,#ede2cc_42%,#e5d7bb_100%)] px-4">
+        <div className="max-w-xl rounded-[2rem] border border-rose-300 bg-white/90 p-8 text-center shadow-[0_30px_90px_rgba(120,93,35,0.12)]">
+          <AlertCircle className="mx-auto h-10 w-10 text-rose-600" />
+          <h1 className="mt-4 text-3xl font-black text-stone-950">Cannot load dashboard</h1>
+          <p className="mt-3 text-sm text-stone-600">{error}</p>
+          <button
+            type="button"
+            onClick={() => void loadDashboard(selectedWeek)}
+            className="mt-6 inline-flex items-center justify-center rounded-full bg-stone-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-stone-800"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
 
-  if (statusNotice?.type === "missing" && statusNotice?.message) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-gray-700">
-        <AlertCircle size={48} className="mb-4 text-amber-500" />
-        <p className="text-xl font-bold text-center max-w-xl">{statusNotice.message}</p>
-        <p className="mt-2 text-center text-gray-500 max-w-xl">
-          We could not load the latest snapshot. Check with an admin and try again.
-        </p>
-        <button
-          onClick={() => loadSnapshot(selectedWeek ?? null)}
-          className="mt-6 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800"
-          aria-label="Retry loading snapshot"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  /* ---------- MAIN UI ---------- */
   return (
-    <div className="min-h-screen bg-gray-100 px-6 py-6 flex justify-center font-sans">
-      <div className="w-full max-w-[1920px] flex flex-col gap-6">
-        {/* HEADER */}
-        <div className="bg-white px-6 py-4 rounded-2xl shadow-sm border flex flex-col gap-3">
-          <div className="flex flex-col xl:flex-row justify-between gap-3">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Security Awareness Dashboard
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#fff7e6_0%,#efe6d1_38%,#e7dbc1_100%)] px-4 py-6 text-stone-900 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+        <section className="overflow-hidden rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 shadow-[0_25px_80px_rgba(120,93,35,0.12)] backdrop-blur">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.34em] text-amber-700">
+                Trend-First Reporting
+              </p>
+              <h1 className="mt-3 text-4xl font-black tracking-tight text-stone-950 sm:text-5xl">
+                Compliance Storyboard
               </h1>
-              <div className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-2">
-                {uploadedLabel && <span>Uploaded: {uploadedLabel}</span>}
-                <span className="mx-1 text-gray-300">|</span>
-                <span>Total Items: {totalTasks}</span>
-                <span className="mx-1 text-gray-300">|</span>
-                <span>Total People: {masterCount}</span>
-                {snapshot?.weekId && (
-                  <>
-                    <span className="mx-1 text-gray-300">|</span>
-                    <span className="font-medium text-gray-700">
-                      Week: {snapshot.weekId}
-                    </span>
-                  </>
-                )}
-              </div>
+              <p className="mt-4 text-sm leading-6 text-stone-600">
+                Start with trend movement, then drill into repeat exposure, status mix, and module hotspots.
+                The goal is to explain what changed this week and which users need action next.
+              </p>
             </div>
 
-            <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 min-w-[220px]">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                  100% Completion Streak
+            <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[420px]">
+              <QuickStat
+                label="Selected Week"
+                value={latestWeekLabel}
+                tone="amber"
+                detail={`Uploaded ${formatDate(snapshot?.uploadedAt)}`}
+              />
+              <QuickStat
+                label="Completion Rate"
+                value={formatPercent(latestTrend?.completionRate)}
+                tone="emerald"
+                detail={formatDelta(trendModel.deltaCompletionRate, " pts vs prior")}
+              />
+              <QuickStat
+                label="People On List"
+                value={String(latestTrend?.peopleOnList ?? 0)}
+                tone="stone"
+                detail={formatDelta(trendModel.deltaPeople, " vs prior")}
+              />
+              <QuickStat
+                label="Incomplete Items"
+                value={String(latestTrend?.incompleteItems ?? 0)}
+                tone="rose"
+                detail={formatDelta(trendModel.deltaIncomplete, " vs prior")}
+              />
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-sm font-medium text-stone-700" htmlFor="week-select">
+                Week
+              </label>
+              <select
+                id="week-select"
+                value={selectedWeek}
+                onChange={(event) => {
+                  const nextWeek = event.target.value;
+                  setSelectedWeek(nextWeek);
+                  void loadDashboard(nextWeek);
+                }}
+                className="rounded-full border border-stone-300 bg-stone-50 px-4 py-2 text-sm outline-none transition focus:border-stone-950"
+              >
+                {orderedWeeks.map((week) => (
+                  <option key={week.weekId} value={week.weekId}>
+                    {week.weekId} ({week.totalIncomplete ?? week.offenderCount ?? 0} incomplete)
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void loadDashboard(selectedWeek)}
+                className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:border-stone-500 hover:bg-stone-50"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Refresh
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/checkpoints"
+                className="inline-flex items-center gap-2 rounded-full bg-stone-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-stone-800"
+              >
+                Checkpoint Analytics
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href="/draw/slot-machine"
+                className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:border-stone-500 hover:bg-stone-50"
+              >
+                Open Draw
+                <ChevronRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {statusNotice ? (
+          <section className="rounded-[2rem] border border-amber-300/70 bg-amber-50/85 p-5 text-stone-700 shadow-[0_20px_60px_rgba(120,93,35,0.08)]">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 text-amber-700" />
+              <div>
+                <p className="text-base font-semibold text-stone-900">
+                  {statusNotice.type === "empty" ? "Zero incomplete rows detected" : "Snapshot unavailable"}
                 </p>
-                <p className="mt-1 text-2xl font-bold text-emerald-900">{perfectWeekStreak}</p>
+                <p className="mt-1 text-sm">{statusNotice.message}</p>
               </div>
-              {perfectWeekStreak === 0 && (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 min-w-[220px]">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">
-                    Days Since Last 100% Completion
-                  </p>
-                  <p className="mt-1 text-2xl font-bold text-rose-900">
-                    {daysSinceLastPerfectWeek ?? "--"}
-                  </p>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="grid gap-6 xl:grid-cols-[1.35fr_0.9fr]">
+          <Panel
+            title="Trend Overview"
+            description="Weekly incomplete items, people on the list, and completion rate over time."
+          >
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={[...(trendModel.weeks ?? [])].reverse()}>
+                  <defs>
+                    <linearGradient id="incompleteFill" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stopColor="#b45309" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#b45309" stopOpacity={0.05} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="#eadfcf" />
+                  <XAxis dataKey="weekId" tick={{ fill: "#6b5c43", fontSize: 12 }} />
+                  <YAxis tick={{ fill: "#6b5c43", fontSize: 12 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="incompleteItems" stroke="#b45309" fill="url(#incompleteFill)" strokeWidth={3} />
+                  <Area type="monotone" dataKey="peopleOnList" stroke="#155e75" fill="#155e7520" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Leadership Readout"
+            description="Short narrative signals for the current week."
+          >
+            <div className="grid gap-4">
+              <NarrativeCard
+                title="What changed"
+                body={
+                  metrics?.prevWeekId
+                    ? `${comparisonModel.summary.find((item) => item.id === "worsened")?.count ?? 0} users carry a higher load than ${metrics.prevWeekId}. ${comparisonModel.summary.find((item) => item.id === "improved")?.count ?? 0} improved.`
+                    : "Week-over-week comparison is unavailable until a prior week exists."
+                }
+              />
+              <NarrativeCard
+                title="Status split"
+                body={`${statusModel.totals.notStarted} sessions are not started and ${statusModel.totals.inProgress} are still in progress.`}
+              />
+              <NarrativeCard
+                title="Persistent risk"
+                body={`${checkpointPanel.summary.repeaters} users have appeared on at least two checkpoints. ${checkpointPanel.summary.persistent} have appeared three or more times.`}
+              />
+            </div>
+          </Panel>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+          <Panel
+            title="Week-Over-Week Segmentation"
+            description={
+              comparisonModel.prevWeekId
+                ? `Click a bucket to filter the user narrative by change versus ${comparisonModel.prevWeekId}.`
+                : "A prior week is required before segmentation can classify movement."
+            }
+          >
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {comparisonModel.summary.map((segment) => {
+                const active = segmentFilter === segment.id;
+                return (
+                  <button
+                    key={segment.id}
+                    type="button"
+                    onClick={() => setSegmentFilter(active ? "all" : segment.id)}
+                    className={`rounded-[1.6rem] border px-4 py-4 text-left transition ${
+                      active
+                        ? "border-stone-950 bg-stone-950 text-white shadow-[0_20px_50px_rgba(41,37,36,0.25)]"
+                        : "border-stone-200 bg-stone-50 text-stone-900 hover:border-stone-400"
+                    }`}
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-70">{segment.label}</p>
+                    <p className="mt-3 text-4xl font-black">{segment.count}</p>
+                    <p className="mt-2 text-sm opacity-80">{segment.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </Panel>
+
+          <Panel title="Status Split" description="Current-week risk mix and age of open sessions.">
+            <div className="grid gap-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FilterTile
+                  active={statusFilter === "not started"}
+                  label="Not Started"
+                  value={statusModel.totals.notStarted}
+                  onClick={() => setStatusFilter(statusFilter === "not started" ? "all" : "not started")}
+                />
+                <FilterTile
+                  active={statusFilter === "in progress"}
+                  label="In Progress"
+                  value={statusModel.totals.inProgress}
+                  onClick={() => setStatusFilter(statusFilter === "in progress" ? "all" : "in progress")}
+                />
+              </div>
+              <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+                <div className="h-[180px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={statusModel.distributions}
+                        dataKey="value"
+                        nameKey="label"
+                        innerRadius={42}
+                        outerRadius={70}
+                        paddingAngle={4}
+                      >
+                        <Cell fill="#be123c" />
+                        <Cell fill="#d97706" />
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-              )}
-              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 min-w-[180px]">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-                  Perfect Weeks Total
-                </p>
-                <p className="mt-1 text-2xl font-bold text-gray-900">{perfectWeeksCount}</p>
+                <div className="space-y-3">
+                  {statusModel.agingBuckets.map((bucket) => (
+                    <div key={bucket.label}>
+                      <div className="mb-1 flex items-center justify-between text-sm text-stone-600">
+                        <span>{bucket.label}</span>
+                        <span>{bucket.count}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-stone-100">
+                        <div
+                          className="h-2 rounded-full bg-stone-900"
+                          style={{
+                            width: `${statusModel.totals.all ? (bucket.count / statusModel.totals.all) * 100 : 0}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-600" htmlFor="week-select">
-                  Week
-                </label>
-                <select
-                  id="week-select"
-                  value={selectedWeek ?? ""}
-                  onChange={handleWeekChange}
-                  disabled={loadingHistory || loadingSnapshot || !history.length}
-                  className="border rounded-md px-3 py-2 text-sm text-gray-800 bg-white shadow-sm"
-                  aria-label="Select week to view snapshot"
+            </div>
+          </Panel>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+          <Panel title="Title Hotspots" description="Top incomplete training titles for the selected week.">
+            <div className="space-y-3">
+              {titleHotspots.map((title) => (
+                <button
+                  key={title.title}
+                  type="button"
+                  onClick={() => setTitleFilter(titleFilter === title.title ? "" : title.title)}
+                  className={`flex w-full items-center justify-between rounded-[1.4rem] border px-4 py-4 text-left transition ${
+                    titleFilter === title.title
+                      ? "border-stone-950 bg-stone-950 text-white"
+                      : "border-stone-200 bg-stone-50 hover:border-stone-400"
+                  }`}
                 >
-                  {history.length === 0 && <option value="">Latest</option>}
-                  {orderedWeeks.map((w) => (
-                    <option key={w.weekId} value={w.weekId}>
-                      {w.weekId} ({w.totalIncomplete ?? w.offenderCount ?? 0} incomplete)
+                  <div>
+                    <p className="text-sm font-semibold">{title.title}</p>
+                    <p className="mt-1 text-xs opacity-75">{title.userCount} affected users</p>
+                  </div>
+                  <p className="text-3xl font-black">{title.incompleteCount}</p>
+                </button>
+              ))}
+              {!titleHotspots.length ? (
+                <div className="rounded-[1.4rem] border border-dashed border-stone-300 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">
+                  No hotspot titles are available for this week.
+                </div>
+              ) : null}
+            </div>
+          </Panel>
+
+          <Panel title="Checkpoint Persistence" description="Users with repeat checkpoint exposure.">
+            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="space-y-3">
+                {checkpointPanel.topRecurring.map((user) => (
+                  <div
+                    key={user.email}
+                    className="rounded-[1.4rem] border border-stone-200 bg-stone-50 px-4 py-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-stone-900">{shortName(user.name)}</p>
+                        <p className="mt-1 text-xs text-stone-500">
+                          Last seen {user.lastSeenCheckpointDate ?? "Unknown"}
+                        </p>
+                      </div>
+                      <p className="text-3xl font-black text-stone-950">{user.checkpointsOnList}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="h-[240px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={checkpointPanel.timeline}>
+                    <CartesianGrid vertical={false} stroke="#eadfcf" />
+                    <XAxis dataKey="checkpointDate" tick={{ fill: "#6b5c43", fontSize: 11 }} />
+                    <YAxis tick={{ fill: "#6b5c43", fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="userCount" fill="#57534e" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </Panel>
+        </section>
+
+        <section className="rounded-[2rem] border border-stone-300/70 bg-white/85 p-6 shadow-[0_25px_70px_rgba(120,93,35,0.1)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">User Narrative</p>
+              <h2 className="mt-2 text-3xl font-black text-stone-950">Current Week Drill-Down</h2>
+              <p className="mt-2 text-sm text-stone-600">
+                Filter by segment, status, hotspot title, or search by user. Open a profile for the full narrative.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
+                Search
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
+                  placeholder="Name or email"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
+                Status filter
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="not started">Not Started</option>
+                  <option value="in progress">In Progress</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-stone-700">
+                Title hotspot
+                <select
+                  value={titleFilter}
+                  onChange={(event) => setTitleFilter(event.target.value)}
+                  className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
+                >
+                  <option value="">All titles</option>
+                  {titleHotspots.map((title) => (
+                    <option key={title.title} value={title.title}>
+                      {title.title}
                     </option>
                   ))}
                 </select>
-              </div>
-              <button
-                type="button"
-                onClick={loadHistory}
-                aria-label="Refresh data"
-                className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700 hover:bg-gray-100"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={exportSnapshot}
-                aria-label="Export snapshot as JSON"
-                className="px-4 py-2 rounded-lg border bg-white text-gray-800 hover:bg-gray-50"
-              >
-                Export Snapshot JSON
-              </button>
+              </label>
             </div>
           </div>
-        </div>
 
-        {statusNotice?.type === "empty" && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-6 py-5 shadow-sm">
-            <div className="flex items-start gap-3">
-              <AlertCircle size={20} className="mt-0.5 shrink-0 text-emerald-600" />
-              <div>
-                <p className="text-base font-semibold text-emerald-900">100% completion rate</p>
-                <p className="mt-1 text-sm text-emerald-800">{statusNotice.message}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* MAIN CONTENT */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {/* High Risk Panel */}
-          <div className="bg-white p-6 rounded-2xl shadow-lg border flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">High Risk Users</h2>
-              <div className="text-sm text-gray-600">
-                {data.length} people • {totalTasks} incomplete items
-              </div>
-            </div>
-            <div className="flex gap-3 flex-wrap items-center">
-              <button
-                onClick={() => setViewMode("grid")}
-                aria-pressed={viewMode === "grid"}
-                aria-label="Show heatmap view"
-                className={`px-3 py-2 rounded-lg ${
-                  viewMode === "grid"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                <LayoutGrid size={16} /> Heatmap
-              </button>
-              <button
-                onClick={() => setViewMode("summary")}
-                aria-pressed={viewMode === "summary"}
-                aria-label="Show summary view"
-                className={`px-3 py-2 rounded-lg ${
-                  viewMode === "summary"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                <List size={16} /> Summary
-              </button>
-            </div>
-
-            {viewMode === "grid" && (
-              <div className="overflow-x-auto pb-2">
-                {sortedData.length ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
-                  {sortedData.map((p) => {
-                    const color = heatmapColors(p.value, minValue, maxValue);
-                    const delta = deltaByName?.[normalizeNameKey(p.name)] ?? 0;
-                    const deltaLabel =
-                      delta > 0 ? `▲ ${delta}` : delta < 0 ? `▼ ${Math.abs(delta)}` : "0";
-                    const deltaClass =
-                      delta > 0
-                        ? "bg-red-100 text-red-800 border-red-200"
-                        : delta < 0
-                          ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                          : "bg-gray-100 text-gray-700 border-gray-200";
-
-                    return (
-                      <div
-                        key={p.name}
-                        onClick={() => setSelectedUser(p.name)}
-                        onKeyDown={(e) => handleTileKeyDown(e, p.name)}
-                        tabIndex={0}
-                        role="button"
-                        aria-label={`Open user details for ${shortName(p.name)}`}
-                        className="p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
-                        style={{ backgroundColor: color.bg, borderColor: color.border }}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
-                          <div className="flex items-center gap-2">
-                            {metricsPrevWeekId && !loadingMetrics && (
-                              <span
-                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${deltaClass}`}
-                                title={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
-                                aria-label={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
-                              >
-                                {deltaLabel}
-                              </span>
-                            )}
-                            <span className="font-bold text-xl text-gray-900">{p.value}</span>
-                          </div>
-                        </div>
+          <div className="mt-6 overflow-hidden rounded-[1.8rem] border border-stone-200">
+            <table className="min-w-full divide-y divide-stone-200 text-sm">
+              <thead className="bg-stone-100 text-left text-xs uppercase tracking-[0.22em] text-stone-500">
+                <tr>
+                  <th className="px-4 py-3">User</th>
+                  <th className="px-4 py-3">Narrative</th>
+                  <th className="px-4 py-3">Checkpoint</th>
+                  <th className="px-4 py-3">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100 bg-white">
+                {visibleProfiles.map((profile) => (
+                  <tr key={profile.key}>
+                    <td className="px-4 py-4 align-top">
+                      <div className="font-semibold text-stone-900">{profile.name}</div>
+                      <div className="mt-1 text-xs text-stone-500">{profile.email || "No email available"}</div>
+                    </td>
+                    <td className="px-4 py-4 align-top text-stone-600">
+                      <div className="font-medium text-stone-900">{profile.sessionCount} incomplete sessions</div>
+                      <div className="mt-1">
+                        Oldest open item:{" "}
+                        {profile.oldestOpenDays !== null ? `${profile.oldestOpenDays} days` : "Unknown"}
                       </div>
-                    );
-                  })}
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-5 py-10 text-center text-sm text-gray-500">
-                    No incomplete users in this snapshot.
-                  </div>
-                )}
-                {loadingMetrics && (
-                  <div className="mt-3 text-xs text-gray-500">
-                    Loading week-over-week changes...
-                  </div>
-                )}
-              </div>
-            )}
-
-            {viewMode === "summary" && (
-              <div className="space-y-2">
-                <h3 className="text-lg font-bold mb-2">Summary</h3>
-                <p className="text-gray-700">
-                  <span className="font-semibold">Total Incomplete Items:</span> {totalTasks}
-                </p>
-
-                <p className="text-gray-700">
-                  <span className="font-semibold">Users With Incomplete Items:</span> {data.length}
-                </p>
-
-                <p className="text-gray-700">
-                  <span className="font-semibold">Average Per Person:</span> {averageTasks}
-                </p>
-              </div>
-            )}
+                      <div className="mt-1">
+                        Change vs prior week:{" "}
+                        {profile.deltaFromPrevWeek === null ? "No comparison" : formatDelta(profile.deltaFromPrevWeek)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 align-top text-stone-600">
+                      {profile.checkpoint ? (
+                        <>
+                          <div className="font-medium text-stone-900">
+                            {profile.checkpoint.checkpointsOnList} appearances
+                          </div>
+                          <div className="mt-1 text-xs text-stone-500">
+                            Last seen {profile.checkpoint.lastSeenCheckpointDate ?? "Unknown"}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-stone-400">No checkpoint history</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedUserKey(profile.key)}
+                        className="rounded-full border border-stone-300 bg-stone-50 px-4 py-2 text-sm font-semibold text-stone-700 transition hover:border-stone-500 hover:bg-stone-100"
+                      >
+                        Open profile
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!visibleProfiles.length ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-10 text-center text-stone-500">
+                      No users match the current filter combination.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
-
-          <div className="bg-white p-6 rounded-2xl shadow-lg border flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">Weekly Draw</h2>
-              <p className="text-sm text-gray-600">
-                Open the Mega-Grid draw to pick a random eligible user.
-              </p>
-            </div>
-            <Link
-              href="/draw/slot-machine"
-              className="text-sm px-4 py-2 rounded-md bg-emerald-600 text-white font-semibold shadow-sm hover:bg-emerald-700"
-            >
-              Open Mega-Grid Draw
-            </Link>
-          </div>
-        </div>
-
-        {/* ---------- USER MODAL ---------- */}
-        <UserModal
-          userName={selectedUser}
-          sessions={selectedSessions}
-          onClose={() => setSelectedUser(null)}
-        />
+        </section>
       </div>
-    </div>
+
+      <UserDetailDialog profile={selectedProfile} onClose={() => setSelectedUserKey(null)} />
+    </main>
   );
 }
 
-/* ---------- Modal Component ---------- */
-function UserModal({ userName, sessions, onClose }) {
-  if (!userName) return null;
+function Panel({ title, description, children }) {
+  return (
+    <section className="rounded-[2rem] border border-stone-300/70 bg-white/85 p-6 shadow-[0_25px_70px_rgba(120,93,35,0.1)]">
+      <div className="mb-5">
+        <h2 className="text-2xl font-black text-stone-950">{title}</h2>
+        <p className="mt-1 text-sm text-stone-600">{description}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
 
-  const headingId = "user-modal-title";
+function QuickStat({ label, value, detail, tone }) {
+  const tones = {
+    amber: "border-amber-300 bg-amber-50 text-amber-950",
+    emerald: "border-emerald-300 bg-emerald-50 text-emerald-950",
+    rose: "border-rose-300 bg-rose-50 text-rose-950",
+    stone: "border-stone-300 bg-stone-50 text-stone-950",
+  };
+  return (
+    <article className={`rounded-[1.6rem] border p-4 ${tones[tone] ?? tones.stone}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-70">{label}</p>
+      <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
+      <p className="mt-2 text-sm opacity-80">{detail}</p>
+    </article>
+  );
+}
+
+function NarrativeCard({ title, body }) {
+  return (
+    <article className="rounded-[1.6rem] border border-stone-200 bg-stone-50 px-4 py-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">{title}</p>
+      <p className="mt-3 text-sm leading-6 text-stone-700">{body}</p>
+    </article>
+  );
+}
+
+function FilterTile({ label, value, active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
+        active ? "border-stone-950 bg-stone-950 text-white" : "border-stone-200 bg-stone-50 text-stone-900"
+      }`}
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-70">{label}</p>
+      <p className="mt-2 text-4xl font-black">{value}</p>
+    </button>
+  );
+}
+
+function UserDetailDialog({ profile, onClose }) {
+  const panelRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const lastFocusRef = useRef(null);
+
+  const handleKeyDown = useEffectEvent((event) => {
+    if (!panelRef.current) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const focusable = panelRef.current.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+
+  useEffect(() => {
+    if (!profile) return;
+    lastFocusRef.current = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+    const listener = (event) => handleKeyDown(event);
+    document.addEventListener("keydown", listener);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", listener);
+      lastFocusRef.current?.focus?.();
+    };
+  }, [profile]);
+
+  if (!profile) return null;
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={headingId}
-    >
-      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl border border-gray-300 focus:outline-none">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-4">
-          <h2 id={headingId} className="text-2xl font-bold text-gray-900">
-            {userName}
-          </h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/50 px-4 py-6 backdrop-blur-sm">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="user-profile-title"
+        className="w-full max-w-4xl overflow-hidden rounded-[2rem] border border-stone-300 bg-white shadow-[0_30px_120px_rgba(41,37,36,0.35)]"
+      >
+        <div className="flex flex-col gap-4 border-b border-stone-200 bg-stone-50 px-6 py-5 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">Narrative Profile</p>
+            <h2 id="user-profile-title" className="mt-2 text-3xl font-black text-stone-950">
+              {profile.name}
+            </h2>
+            <p className="mt-2 text-sm text-stone-600">{profile.email || "No email available"}</p>
+          </div>
           <button
+            ref={closeButtonRef}
+            type="button"
             onClick={onClose}
-            className="text-sm px-3 py-1 rounded-md bg-gray-200 hover:bg-gray-300 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
-            aria-label="Close user details"
+            className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:border-stone-500 hover:bg-stone-50"
           >
             Close
           </button>
         </div>
 
-        {/* Session list */}
-        <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-2">
-          {sessions.map((s, i) => (
-            <div
-              key={i}
-              className="p-4 rounded-lg border border-gray-300 bg-gray-50 hover:bg-gray-100 transition shadow-sm text-gray-900"
-            >
-              <p className="font-semibold text-gray-900 mb-1">
-                {s.title}
-              </p>
+        <div className="max-h-[75vh] overflow-y-auto px-6 py-6">
+          <div className="grid gap-4 lg:grid-cols-4">
+            <QuickStat label="Open Sessions" value={String(profile.sessionCount)} detail="Current week" tone="stone" />
+            <QuickStat
+              label="Oldest Open"
+              value={profile.oldestOpenDays !== null ? `${profile.oldestOpenDays}d` : "--"}
+              detail={profile.oldestOpenDate ? formatDate(profile.oldestOpenDate) : "Unknown sent date"}
+              tone="rose"
+            />
+            <QuickStat
+              label="Week Change"
+              value={profile.deltaFromPrevWeek === null ? "--" : formatDelta(profile.deltaFromPrevWeek)}
+              detail="Compared with prior week"
+              tone="amber"
+            />
+            <QuickStat
+              label="Checkpoint Count"
+              value={String(profile.checkpoint?.checkpointsOnList ?? 0)}
+              detail={profile.checkpoint?.lastSeenCheckpointDate ?? "No checkpoint history"}
+              tone="emerald"
+            />
+          </div>
 
-              <p className="text-sm text-gray-700">
-                <span className="font-medium">Status:</span> {s.status}
-              </p>
+          <div className="mt-6 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="space-y-4">
+              <div className="rounded-[1.6rem] border border-stone-200 bg-stone-50 p-4">
+                <h3 className="text-lg font-black text-stone-950">Status Mix</h3>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {profile.statusCounts.map((status) => (
+                    <span
+                      key={status.label}
+                      className={`rounded-full px-3 py-2 text-sm font-semibold ${statusTone(status.label.toLowerCase())}`}
+                    >
+                      {status.label}: {status.value}
+                    </span>
+                  ))}
+                </div>
+              </div>
 
-              <p className="text-sm text-gray-700">
-                <span className="font-medium">Sent:</span> {s.sentDate}
-              </p>
+              <div className="rounded-[1.6rem] border border-stone-200 bg-stone-50 p-4">
+                <h3 className="text-lg font-black text-stone-950">Age Narrative</h3>
+                <div className="mt-4 space-y-3 text-sm text-stone-600">
+                  <p>Fresh (0-7 days): {profile.ageBuckets.fresh}</p>
+                  <p>Aging (8-14 days): {profile.ageBuckets.aging}</p>
+                  <p>Stale (15+ days): {profile.ageBuckets.stale}</p>
+                  <p>Unknown sent date: {profile.ageBuckets.unknown}</p>
+                </div>
+              </div>
 
-              <p className="text-sm text-gray-700">
-                <span className="font-medium">Pending:</span>{" "}
-                {pendingDays(s.sentDate)} days
-              </p>
+              <div className="rounded-[1.6rem] border border-stone-200 bg-stone-50 p-4">
+                <h3 className="text-lg font-black text-stone-950">Title Counts</h3>
+                <div className="mt-4 space-y-3">
+                  {profile.titleCounts.slice(0, 6).map((title) => (
+                    <div key={title.title}>
+                      <div className="mb-1 flex items-center justify-between text-sm text-stone-600">
+                        <span>{title.title}</span>
+                        <span>{title.count}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-stone-100">
+                        <div
+                          className="h-2 rounded-full bg-stone-900"
+                          style={{ width: `${(title.count / profile.sessionCount) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          ))}
+
+            <div className="rounded-[1.6rem] border border-stone-200 bg-white p-4">
+              <h3 className="text-lg font-black text-stone-950">Open Sessions</h3>
+              <div className="mt-4 space-y-3">
+                {profile.sessions.map((session, index) => (
+                  <div
+                    key={`${profile.key}-${session.title}-${index}`}
+                    className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-4"
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-stone-900">{session.title || "Unknown title"}</p>
+                        <p className="mt-1 text-xs text-stone-500">{session.sentDate || "Unknown sent date"}</p>
+                      </div>
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusTone(
+                          String(session.status ?? "").toLowerCase()
+                        )}`}
+                      >
+                        {session.status}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm text-stone-600">
+                      Pending: {getPendingDays(session.sentDate) ?? "Unknown"} days
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { fetchCheckpointIndex, fetchCheckpointRecord } from "@/lib/checkpointHistory";
+import { fetchMasterUsers } from "@/lib/lists";
 
 export const runtime = "nodejs";
 
-type UserCheckpointStat = {
+type UserAggregate = {
   email: string;
+  name: string;
   checkpointsOnList: number;
+  firstSeenCheckpointDate: string | null;
+  firstSeenCheckpointId: string | null;
   lastSeenCheckpointDate: string | null;
   lastSeenCheckpointId: string | null;
 };
@@ -17,54 +21,109 @@ function normalizeEmail(value: unknown): string {
 
 export async function GET() {
   try {
-    const index = await fetchCheckpointIndex();
-    const checkpoints = (index.checkpoints ?? []).slice().sort((a, b) => a.checkpointOrdinal - b.checkpointOrdinal);
+    const [index, masterUsers] = await Promise.all([
+      fetchCheckpointIndex(),
+      fetchMasterUsers(),
+    ]);
 
-    const userMap = new Map<string, { checkpoints: number; lastDate: string; lastId: string }>();
+    const checkpoints = (index.checkpoints ?? [])
+      .slice()
+      .sort((a, b) => b.checkpointOrdinal - a.checkpointOrdinal);
+    const nameByEmail = new Map(
+      masterUsers.map((user) => [normalizeEmail(user.email), user.name.trim()])
+    );
+    const userMap = new Map<string, UserAggregate>();
+    const repeatTracker = new Set<string>();
+    const seenEver = new Set<string>();
+    const timeline: Array<{
+      checkpointId: string;
+      checkpointDate: string;
+      checkpointOrdinal: number;
+      latestWeekId: string;
+      userCount: number;
+      repeatUserCount: number;
+      newUserCount: number;
+    }> = [];
 
-    for (const cp of checkpoints) {
-      const record = await fetchCheckpointRecord(cp.checkpointId);
+    for (const checkpoint of checkpoints.slice().reverse()) {
+      const record = await fetchCheckpointRecord(checkpoint.checkpointId);
       if (!record) continue;
 
-      const set = new Set(
-        (record.highRiskEmails ?? []).map(normalizeEmail).filter(Boolean)
+      const currentEmails = Array.from(
+        new Set((record.highRiskEmails ?? []).map(normalizeEmail).filter(Boolean))
       );
-      for (const email of set) {
-        const prev = userMap.get(email);
-        if (!prev) {
-          userMap.set(email, {
-            checkpoints: 1,
-            lastDate: record.checkpointDate,
-            lastId: record.checkpointId,
-          });
-          continue;
+
+      let repeatUserCount = 0;
+      let newUserCount = 0;
+      currentEmails.forEach((email) => {
+        if (repeatTracker.has(email)) {
+          repeatUserCount += 1;
         }
-        prev.checkpoints += 1;
-        // Since we iterate in ascending ordinal order, last write wins.
-        prev.lastDate = record.checkpointDate;
-        prev.lastId = record.checkpointId;
-      }
+        if (!seenEver.has(email)) {
+          newUserCount += 1;
+          seenEver.add(email);
+        }
+        repeatTracker.add(email);
+
+        const existing = userMap.get(email);
+        if (!existing) {
+          userMap.set(email, {
+            email,
+            name: nameByEmail.get(email) ?? email,
+            checkpointsOnList: 1,
+            firstSeenCheckpointDate: record.checkpointDate,
+            firstSeenCheckpointId: record.checkpointId,
+            lastSeenCheckpointDate: record.checkpointDate,
+            lastSeenCheckpointId: record.checkpointId,
+          });
+          return;
+        }
+        existing.checkpointsOnList += 1;
+        existing.lastSeenCheckpointDate = record.checkpointDate;
+        existing.lastSeenCheckpointId = record.checkpointId;
+      });
+
+      timeline.push({
+        checkpointId: checkpoint.checkpointId,
+        checkpointDate: checkpoint.checkpointDate,
+        checkpointOrdinal: checkpoint.checkpointOrdinal,
+        latestWeekId: checkpoint.latestWeekId,
+        userCount: currentEmails.length,
+        repeatUserCount,
+        newUserCount,
+      });
     }
 
-    const users: UserCheckpointStat[] = Array.from(userMap.entries())
-      .map(([email, v]) => ({
-        email,
-        checkpointsOnList: v.checkpoints,
-        lastSeenCheckpointDate: v.lastDate ?? null,
-        lastSeenCheckpointId: v.lastId ?? null,
+    const users = Array.from(userMap.values())
+      .map((user) => ({
+        ...user,
+        displayName: user.name || user.email,
       }))
-      .sort((a, b) => b.checkpointsOnList - a.checkpointsOnList || a.email.localeCompare(b.email));
+      .sort(
+        (a, b) =>
+          b.checkpointsOnList - a.checkpointsOnList ||
+          a.displayName.localeCompare(b.displayName)
+      );
+
+    const summary = {
+      recurringUsers: users.filter((user) => user.checkpointsOnList >= 2).length,
+      persistentUsers: users.filter((user) => user.checkpointsOnList >= 3).length,
+      highestPersistence: users[0]?.checkpointsOnList ?? 0,
+      latestCheckpoint: timeline[timeline.length - 1] ?? null,
+    };
 
     return NextResponse.json({
       success: true,
       totalCheckpoints: checkpoints.length,
-      checkpoints: checkpoints.map((c) => ({
-        checkpointId: c.checkpointId,
-        checkpointDate: c.checkpointDate,
-        checkpointOrdinal: c.checkpointOrdinal,
-        latestWeekId: c.latestWeekId,
-        latestUploadedAt: c.latestUploadedAt,
+      checkpoints: checkpoints.map((checkpoint) => ({
+        checkpointId: checkpoint.checkpointId,
+        checkpointDate: checkpoint.checkpointDate,
+        checkpointOrdinal: checkpoint.checkpointOrdinal,
+        latestWeekId: checkpoint.latestWeekId,
+        latestUploadedAt: checkpoint.latestUploadedAt,
       })),
+      timeline,
+      summary,
       users,
     });
   } catch (error) {
@@ -75,4 +134,3 @@ export async function GET() {
     );
   }
 }
-
