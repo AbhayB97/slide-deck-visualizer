@@ -348,7 +348,7 @@ export default function SlideDeckVisualizer() {
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">Current Week List</p>
               <h2 className="mt-2 text-3xl font-black text-stone-950">People With Incomplete Sessions</h2>
               <p className="mt-2 text-sm text-stone-600">
-                Open the dashboard and this list is immediately available. Use filters to narrow the current week before moving to lower-page analytics.
+                Open the dashboard and scan the full current-week list without fighting a nested scroll area.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -391,70 +391,80 @@ export default function SlideDeckVisualizer() {
             </div>
           </div>
 
-          <div className="mt-6 overflow-hidden rounded-[1.8rem] border border-stone-200">
-            <div className="max-h-[26rem] overflow-auto">
-              <table className="min-w-full divide-y divide-stone-200 text-sm">
-                <thead className="sticky top-0 bg-stone-100 text-left text-xs uppercase tracking-[0.22em] text-stone-500">
-                  <tr>
-                    <th className="px-4 py-3">User</th>
-                    <th className="px-4 py-3">Narrative</th>
-                    <th className="px-4 py-3">Checkpoint</th>
-                    <th className="px-4 py-3">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100 bg-white">
-                  {visibleProfiles.map((profile) => (
-                    <tr key={profile.key}>
-                      <td className="px-4 py-4 align-top">
-                        <div className="font-semibold text-stone-900">{profile.name}</div>
-                        <div className="mt-1 text-xs text-stone-500">{profile.email || "No email available"}</div>
-                      </td>
-                      <td className="px-4 py-4 align-top text-stone-600">
-                        <div className="font-medium text-stone-900">{profile.sessionCount} incomplete sessions</div>
-                        <div className="mt-1">
-                          Oldest open item:{" "}
-                          {profile.oldestOpenDays !== null ? `${profile.oldestOpenDays} days` : "Unknown"}
-                        </div>
-                        <div className="mt-1">
-                          Change vs prior week:{" "}
-                          {profile.deltaFromPrevWeek === null ? "No comparison" : formatDelta(profile.deltaFromPrevWeek)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 align-top text-stone-600">
-                        {profile.checkpoint ? (
-                          <>
-                            <div className="font-medium text-stone-900">
-                              {profile.checkpoint.checkpointsOnList} appearances
-                            </div>
-                            <div className="mt-1 text-xs text-stone-500">
-                              Last seen {profile.checkpoint.lastSeenCheckpointDate ?? "Unknown"}
-                            </div>
-                          </>
-                        ) : (
-                          <span className="text-stone-400">No checkpoint history</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 align-top">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedUserKey(profile.key)}
-                          className="rounded-full border border-stone-300 bg-stone-50 px-4 py-2 text-sm font-semibold text-stone-700 transition hover:border-stone-500 hover:bg-stone-100"
-                        >
-                          Open profile
-                        </button>
-                      </td>
-                    </tr>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {visibleProfiles.map((profile) => (
+              <button
+                key={profile.key}
+                type="button"
+                onClick={() => setSelectedUserKey(profile.key)}
+                className="rounded-[1.6rem] border border-stone-200 bg-[linear-gradient(180deg,#fffdf9,#f6efe2)] p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-stone-400 hover:shadow-md"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-lg font-bold text-stone-950">{shortName(profile.name)}</p>
+                    <p className="mt-1 truncate text-xs text-stone-500">{profile.email || "No email available"}</p>
+                  </div>
+                  <span className="rounded-full bg-stone-950 px-3 py-1 text-sm font-bold text-white">
+                    {profile.sessionCount}
+                  </span>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {profile.statusCounts.slice(0, 2).map((status) => (
+                    <span
+                      key={`${profile.key}-${status.label}`}
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(
+                        status.label.toLowerCase()
+                      )}`}
+                    >
+                      {status.label}: {status.value}
+                    </span>
                   ))}
-                  {!visibleProfiles.length ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center text-stone-500">
-                        No users match the current filter combination.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-stone-500">Oldest Open</p>
+                    <p className="mt-1 font-semibold text-stone-900">
+                      {profile.oldestOpenDays !== null ? `${profile.oldestOpenDays}d` : "Unknown"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-stone-500">Week Change</p>
+                    <p className="mt-1 font-semibold text-stone-900">
+                      {profile.deltaFromPrevWeek === null ? "No comparison" : formatDelta(profile.deltaFromPrevWeek)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between text-sm">
+                  <div className="text-stone-600">
+                    {profile.checkpoint ? (
+                      <>
+                        <span className="font-semibold text-stone-900">
+                          {profile.checkpoint.checkpointsOnList} checkpoint
+                          {profile.checkpoint.checkpointsOnList === 1 ? "" : "s"}
+                        </span>
+                        <p className="mt-1 text-xs text-stone-500">
+                          Last seen {profile.checkpoint.lastSeenCheckpointDate ?? "Unknown"}
+                        </p>
+                      </>
+                    ) : (
+                      <span className="text-stone-400">No checkpoint history</span>
+                    )}
+                  </div>
+                  <span className="rounded-full border border-stone-300 bg-white px-3 py-1 text-xs font-semibold text-stone-700">
+                    Open profile
+                  </span>
+                </div>
+              </button>
+            ))}
+
+            {!visibleProfiles.length ? (
+              <div className="sm:col-span-2 xl:col-span-3 rounded-[1.4rem] border border-dashed border-stone-300 bg-stone-50 px-4 py-10 text-center text-sm text-stone-500">
+                No users match the current filter combination.
+              </div>
+            ) : null}
           </div>
         </section>
 
