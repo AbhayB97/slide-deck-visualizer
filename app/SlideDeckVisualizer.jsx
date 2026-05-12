@@ -11,26 +11,30 @@ import {
 } from "lucide-react";
 import {
   Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
+  ComposedChart,
+  Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import {
-  buildCheckpointPanelModel,
+  buildCheckpointExposureModel,
   buildComparisonModel,
+  buildConcentrationModel,
+  buildEscalationQueueModel,
+  buildLoadDistributionModel,
   buildStatusModel,
   buildTitleHotspots,
   buildTrendModel,
   buildUserProfiles,
+  buildWeekChangeStripModel,
   getPendingDays,
+  normalizeEmail,
   normalizeNameKey,
   shortName,
 } from "@/lib/reporting";
@@ -66,6 +70,13 @@ function statusTone(status) {
   return "bg-stone-100 text-stone-700";
 }
 
+function toneClasses(tone) {
+  if (tone === "rose") return "bg-rose-500";
+  if (tone === "amber") return "bg-amber-500";
+  if (tone === "emerald") return "bg-emerald-500";
+  return "bg-stone-500";
+}
+
 function lerpColor(c1, c2, t) {
   return {
     r: Math.round(c1.r + (c2.r - c1.r) * t),
@@ -79,15 +90,28 @@ function toRgb({ r, g, b }) {
 }
 
 function getRiskStyle(ratio) {
-  // 0 = low risk (cool blue), 1 = high risk (warm rose), 3-stop via amber midpoint
-  const low  = { light: { r: 239, g: 246, b: 255 }, dark: { r: 219, g: 234, b: 254 }, border: { r: 147, g: 197, b: 253 } };
-  const mid  = { light: { r: 255, g: 251, b: 235 }, dark: { r: 254, g: 243, b: 199 }, border: { r: 252, g: 211, b: 77  } };
-  const high = { light: { r: 255, g: 241, b: 242 }, dark: { r: 254, g: 205, b: 211 }, border: { r: 252, g: 165, b: 165 } };
+  const low = {
+    light: { r: 239, g: 246, b: 255 },
+    dark: { r: 219, g: 234, b: 254 },
+    border: { r: 147, g: 197, b: 253 },
+  };
+  const mid = {
+    light: { r: 255, g: 251, b: 235 },
+    dark: { r: 254, g: 243, b: 199 },
+    border: { r: 252, g: 211, b: 77 },
+  };
+  const high = {
+    light: { r: 255, g: 241, b: 242 },
+    dark: { r: 254, g: 205, b: 211 },
+    border: { r: 252, g: 165, b: 165 },
+  };
   const t = ratio <= 0.5 ? ratio * 2 : (ratio - 0.5) * 2;
   const from = ratio <= 0.5 ? low : mid;
-  const to   = ratio <= 0.5 ? mid : high;
+  const to = ratio <= 0.5 ? mid : high;
   return {
-    background:  `linear-gradient(145deg, ${toRgb(lerpColor(from.light, to.light, t))} 0%, ${toRgb(lerpColor(from.dark, to.dark, t))} 100%)`,
+    background: `linear-gradient(145deg, ${toRgb(
+      lerpColor(from.light, to.light, t)
+    )} 0%, ${toRgb(lerpColor(from.dark, to.dark, t))} 100%)`,
     borderColor: toRgb(lerpColor(from.border, to.border, t)),
   };
 }
@@ -127,15 +151,16 @@ export default function SlideDeckVisualizer() {
       const checkpointJson = await checkpointRes.json().catch(() => ({}));
 
       const weeks = Array.isArray(historyJson?.history?.weeks) ? historyJson.history.weeks : [];
-      const resolvedWeek =
-        nextWeek || weeks[0]?.weekId || snapshot?.weekId || "";
+      const resolvedWeek = nextWeek || weeks[0]?.weekId || snapshot?.weekId || "";
       const snapshotEndpoint = resolvedWeek
         ? `/api/snapshot?week=${encodeURIComponent(resolvedWeek)}`
         : "/api/latest-snapshot";
 
       const [snapshotRes, metricsRes] = await Promise.all([
         fetch(snapshotEndpoint),
-        resolvedWeek ? fetch(`/api/metrics?week=${encodeURIComponent(resolvedWeek)}`) : Promise.resolve(null),
+        resolvedWeek
+          ? fetch(`/api/metrics?week=${encodeURIComponent(resolvedWeek)}`)
+          : Promise.resolve(null),
       ]);
 
       const snapshotJson = await snapshotRes.json().catch(() => ({}));
@@ -182,26 +207,23 @@ export default function SlideDeckVisualizer() {
   }
 
   useEffect(() => {
-    // The initial load is intentionally one-shot.
     void loadDashboard("");
+    // The initial dashboard load is intentionally one-shot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const parsedRows = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
+  const metricsUsers = Array.isArray(metrics?.users) ? metrics.users : [];
   const trendModel = buildTrendModel(orderedWeeks, masterCount);
   const statusModel = buildStatusModel(parsedRows);
-  const comparisonModel = buildComparisonModel(
-    parsedRows,
-    Array.isArray(metrics?.users) ? metrics.users : [],
-    metrics?.prevWeekId
-  );
+  const comparisonModel = buildComparisonModel(parsedRows, metricsUsers, metrics?.prevWeekId);
   const titleHotspots = buildTitleHotspots(parsedRows);
-  const checkpointPanel = buildCheckpointPanelModel(checkpoints.users, checkpoints.timeline);
-  const userProfiles = buildUserProfiles(
-    parsedRows,
-    Array.isArray(metrics?.users) ? metrics.users : [],
-    checkpoints.users
-  );
+  const userProfiles = buildUserProfiles(parsedRows, metricsUsers, checkpoints.users);
+  const escalationModel = buildEscalationQueueModel(parsedRows, metricsUsers, checkpoints.users);
+  const loadDistributionModel = buildLoadDistributionModel(userProfiles);
+  const concentrationModel = buildConcentrationModel(parsedRows, userProfiles, titleHotspots);
+  const weekChangeModel = buildWeekChangeStripModel(trendModel, comparisonModel);
+  const checkpointExposureModel = buildCheckpointExposureModel(checkpoints.timeline, userProfiles);
 
   const selectedSegmentKeys =
     segmentFilter !== "all"
@@ -229,11 +251,27 @@ export default function SlideDeckVisualizer() {
     });
 
   const maxSessionCount = visibleProfiles.length > 0 ? visibleProfiles[0].sessionCount : 1;
-  const minSessionCount = visibleProfiles.length > 0 ? visibleProfiles[visibleProfiles.length - 1].sessionCount : 1;
+  const minSessionCount =
+    visibleProfiles.length > 0 ? visibleProfiles[visibleProfiles.length - 1].sessionCount : 1;
 
   const selectedProfile = selectedUserKey ? userProfiles[selectedUserKey] ?? null : null;
   const latestTrend = trendModel.latest;
   const latestWeekLabel = snapshot?.weekId || latestTrend?.weekId || "Latest week";
+  const topEscalationRows = escalationModel.entries.slice(0, 8);
+  const titleOptions = concentrationModel.titleMatrix ?? [];
+  const recentCheckpointTimeline = checkpointExposureModel.timeline.slice(-12);
+
+  function handlePersistentUserSelect(user) {
+    const key = normalizeEmail(user.email) || normalizeNameKey(user.name);
+    setStatusFilter("all");
+    setSegmentFilter("all");
+    setTitleFilter("");
+    if (key && userProfiles[key]) {
+      setSelectedUserKey(key);
+      return;
+    }
+    setQuery(String(user.email || user.name || ""));
+  }
 
   if (loading) {
     return (
@@ -269,22 +307,29 @@ export default function SlideDeckVisualizer() {
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.34em] text-amber-700">
-                Current Week Dashboard
+                Escalation Risk Dashboard
               </p>
               <h1 className="mt-3 text-3xl font-black tracking-tight text-stone-950 sm:text-4xl">
                 Incomplete Sessions Requiring Action
               </h1>
               <p className="mt-3 text-sm leading-6 text-stone-600">
-                The homepage starts with the current-week incomplete list. Trend and supporting analytics remain below.
+                The homepage keeps the current-week queue front and center, then explains whether the
+                load is worsening, aging into escalation, or repeating across checkpoints.
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[380px]">
+            <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[420px]">
               <QuickStat
-                label="Selected Week"
-                value={latestWeekLabel}
-                tone="amber"
-                detail={`Uploaded ${formatDate(snapshot?.uploadedAt)}`}
+                label="People On List"
+                value={String(latestTrend?.peopleOnList ?? 0)}
+                tone="stone"
+                detail={formatDelta(trendModel.deltaPeople, " vs prior")}
+              />
+              <QuickStat
+                label="Open Sessions"
+                value={String(latestTrend?.incompleteItems ?? 0)}
+                tone="rose"
+                detail={formatDelta(trendModel.deltaIncomplete, " vs prior")}
               />
               <QuickStat
                 label="Completion Rate"
@@ -293,22 +338,24 @@ export default function SlideDeckVisualizer() {
                 detail={formatDelta(trendModel.deltaCompletionRate, " pts vs prior")}
               />
               <QuickStat
-                label="People On List"
-                value={String(latestTrend?.peopleOnList ?? 0)}
-                tone="stone"
-                detail={formatDelta(trendModel.deltaPeople, " vs prior")}
-              />
-              <QuickStat
-                label="Incomplete Items"
-                value={String(latestTrend?.incompleteItems ?? 0)}
-                tone="rose"
-                detail={formatDelta(trendModel.deltaIncomplete, " vs prior")}
+                label="Persistent Risk Users"
+                value={String(checkpointExposureModel.currentWeek.recurringUsers ?? 0)}
+                tone="amber"
+                detail={`${checkpointExposureModel.currentWeek.persistentUsers ?? 0} at 3+ checkpoints`}
               />
             </div>
           </div>
 
           <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-3">
+              <ExecutiveTag label="Selected Week" value={latestWeekLabel} />
+              <ExecutiveTag
+                label="Uploaded"
+                value={formatDate(snapshot?.uploadedAt)}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-3">
               <label className="text-sm font-medium text-stone-700" htmlFor="week-select">
                 Week
               </label>
@@ -336,9 +383,6 @@ export default function SlideDeckVisualizer() {
                 <RefreshCw className="h-4 w-4" />
                 Refresh
               </button>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
               <Link
                 href="/checkpoints"
                 className="inline-flex items-center gap-2 rounded-full bg-stone-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-stone-800"
@@ -377,7 +421,7 @@ export default function SlideDeckVisualizer() {
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">Current Week List</p>
               <h2 className="mt-2 text-3xl font-black text-stone-950">People With Incomplete Sessions</h2>
               <p className="mt-2 text-sm text-stone-600">
-                Open the dashboard and scan the full current-week list without fighting a nested scroll area.
+                Use the filters to narrow the operational queue, then open a profile for a session-level readout.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -410,7 +454,7 @@ export default function SlideDeckVisualizer() {
                   className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-stone-950"
                 >
                   <option value="">All titles</option>
-                  {titleHotspots.map((title) => (
+                  {titleOptions.map((title) => (
                     <option key={title.title} value={title.title}>
                       {title.title}
                     </option>
@@ -420,79 +464,101 @@ export default function SlideDeckVisualizer() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+          <div className="mt-4 flex flex-wrap gap-2">
+            {comparisonModel.summary.map((segment) => {
+              const active = segmentFilter === segment.id;
+              return (
+                <button
+                  key={segment.id}
+                  type="button"
+                  onClick={() => setSegmentFilter(active ? "all" : segment.id)}
+                  className={`rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
+                    active
+                      ? "border-stone-950 bg-stone-950 text-white"
+                      : "border-stone-300 bg-white text-stone-700 hover:border-stone-500"
+                  }`}
+                >
+                  {segment.label}: {segment.count}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
             {visibleProfiles.map((profile) => {
               const ratio =
                 maxSessionCount === minSessionCount
                   ? 0.5
                   : (profile.sessionCount - minSessionCount) / (maxSessionCount - minSessionCount);
               return (
-              <button
-                key={profile.key}
-                type="button"
-                onClick={() => setSelectedUserKey(profile.key)}
-                style={getRiskStyle(ratio)}
-                className="rounded-[1.6rem] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-lg font-bold text-stone-950">{shortName(profile.name)}</p>
-                    <p className="mt-1 truncate text-xs text-stone-500">{profile.email || "No email available"}</p>
-                  </div>
-                  <span className="rounded-full bg-stone-950 px-3 py-1 text-sm font-bold text-white">
-                    {profile.sessionCount}
-                  </span>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {profile.statusCounts.slice(0, 2).map((status) => (
-                    <span
-                      key={`${profile.key}-${status.label}`}
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(
-                        status.label.toLowerCase()
-                      )}`}
-                    >
-                      {status.label}: {status.value}
+                <button
+                  key={profile.key}
+                  type="button"
+                  onClick={() => setSelectedUserKey(profile.key)}
+                  style={getRiskStyle(ratio)}
+                  className="rounded-[1.6rem] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-lg font-bold text-stone-950">{shortName(profile.name)}</p>
+                      <p className="mt-1 truncate text-xs text-stone-500">
+                        {profile.email || "No email available"}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-stone-950 px-3 py-1 text-sm font-bold text-white">
+                      {profile.sessionCount}
                     </span>
-                  ))}
-                </div>
+                  </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <p className="text-stone-500">Oldest Open</p>
-                    <p className="mt-1 font-semibold text-stone-900">
-                      {profile.oldestOpenDays !== null ? `${profile.oldestOpenDays}d` : "Unknown"}
-                    </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {profile.statusCounts.slice(0, 2).map((status) => (
+                      <span
+                        key={`${profile.key}-${status.label}`}
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(
+                          status.label.toLowerCase()
+                        )}`}
+                      >
+                        {status.label}: {status.value}
+                      </span>
+                    ))}
                   </div>
-                  <div>
-                    <p className="text-stone-500">Week Change</p>
-                    <p className="mt-1 font-semibold text-stone-900">
-                      {profile.deltaFromPrevWeek === null ? "No comparison" : formatDelta(profile.deltaFromPrevWeek)}
-                    </p>
-                  </div>
-                </div>
 
-                <div className="mt-4 flex items-center justify-between text-sm">
-                  <div className="text-stone-600">
-                    {profile.checkpoint ? (
-                      <>
-                        <span className="font-semibold text-stone-900">
-                          {profile.checkpoint.checkpointsOnList} checkpoint
-                          {profile.checkpoint.checkpointsOnList === 1 ? "" : "s"}
-                        </span>
-                        <p className="mt-1 text-xs text-stone-500">
-                          Last seen {profile.checkpoint.lastSeenCheckpointDate ?? "Unknown"}
-                        </p>
-                      </>
-                    ) : (
-                      <span className="text-stone-400">No checkpoint history</span>
-                    )}
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-stone-500">Oldest Open</p>
+                      <p className="mt-1 font-semibold text-stone-900">
+                        {profile.oldestOpenDays !== null ? `${profile.oldestOpenDays}d` : "Unknown"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-stone-500">Week Change</p>
+                      <p className="mt-1 font-semibold text-stone-900">
+                        {profile.deltaFromPrevWeek === null ? "No comparison" : formatDelta(profile.deltaFromPrevWeek)}
+                      </p>
+                    </div>
                   </div>
-                  <span className="rounded-full border border-stone-300 bg-white px-3 py-1 text-xs font-semibold text-stone-700">
-                    Open profile
-                  </span>
-                </div>
-              </button>
+
+                  <div className="mt-4 flex items-center justify-between text-sm">
+                    <div className="text-stone-600">
+                      {profile.checkpoint ? (
+                        <>
+                          <span className="font-semibold text-stone-900">
+                            {profile.checkpoint.checkpointsOnList} checkpoint
+                            {profile.checkpoint.checkpointsOnList === 1 ? "" : "s"}
+                          </span>
+                          <p className="mt-1 text-xs text-stone-500">
+                            Last seen {profile.checkpoint.lastSeenCheckpointDate ?? "Unknown"}
+                          </p>
+                        </>
+                      ) : (
+                        <span className="text-stone-400">No checkpoint history</span>
+                      )}
+                    </div>
+                    <span className="rounded-full border border-stone-300 bg-white px-3 py-1 text-xs font-semibold text-stone-700">
+                      Open profile
+                    </span>
+                  </div>
+                </button>
               );
             })}
 
@@ -504,14 +570,131 @@ export default function SlideDeckVisualizer() {
           </div>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1.35fr_0.9fr]">
+        <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <Panel
-            title="Trend Overview"
-            description="Weekly incomplete items, people on the list, and completion rate over time."
+            title="Escalation Watch"
+            description="Prioritize who needs intervention first based on load, age, recent worsening, and checkpoint recurrence."
           >
-            <div className="h-[320px]">
+            <div className="overflow-hidden rounded-[1.6rem] border border-stone-200">
+              <table className="min-w-full divide-y divide-stone-200 text-sm">
+                <thead className="bg-stone-100 text-left text-xs uppercase tracking-[0.18em] text-stone-500">
+                  <tr>
+                    <th className="px-4 py-3">User</th>
+                    <th className="px-4 py-3">Open</th>
+                    <th className="px-4 py-3">Oldest</th>
+                    <th className="px-4 py-3">Week Change</th>
+                    <th className="px-4 py-3">Checkpoints</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100 bg-white">
+                  {topEscalationRows.map((entry) => (
+                    <tr
+                      key={entry.key}
+                      className="cursor-pointer transition hover:bg-stone-50"
+                      onClick={() => setSelectedUserKey(entry.key)}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-stone-900">{entry.name}</div>
+                        <div className="text-xs text-stone-500">{entry.email || "No email available"}</div>
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-stone-900">{entry.sessionCount}</td>
+                      <td className="px-4 py-3 text-stone-600">
+                        {entry.oldestOpenDays !== null ? `${entry.oldestOpenDays}d` : "Unknown"}
+                      </td>
+                      <td className="px-4 py-3 text-stone-600">
+                        {entry.deltaFromPrevWeek === null ? "No comparison" : formatDelta(entry.deltaFromPrevWeek)}
+                      </td>
+                      <td className="px-4 py-3 text-stone-600">{entry.checkpointCount || "--"}</td>
+                    </tr>
+                  ))}
+                  {!topEscalationRows.length ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-10 text-center text-stone-500">
+                        No current-week users are available for escalation ranking.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Risk Aging Mix"
+            description="Session age shows whether the queue is fresh, aging into intervention, or already stale."
+          >
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MetricCard label="High Priority Users" value={escalationModel.summary.highPriorityUsers} />
+                <MetricCard label="Stale Sessions" value={escalationModel.summary.staleSessionCount} />
+              </div>
+              <div className="space-y-3">
+                {escalationModel.agingMix.map((bucket) => (
+                  <div key={bucket.id}>
+                    <div className="mb-1 flex items-center justify-between text-sm text-stone-600">
+                      <span>{bucket.label}</span>
+                      <span>
+                        {bucket.count} ({formatPercent(bucket.share)})
+                      </span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-stone-100">
+                      <div
+                        className={`h-full rounded-full ${toneClasses(bucket.tone)}`}
+                        style={{ width: `${bucket.share}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                  Worsening vs Improving
+                </p>
+                <div className="mt-4 space-y-3">
+                  {comparisonModel.summary.map((segment) => {
+                    const active = segmentFilter === segment.id;
+                    const maxCount = Math.max(...comparisonModel.summary.map((item) => item.count), 1);
+                    return (
+                      <button
+                        key={segment.id}
+                        type="button"
+                        onClick={() => setSegmentFilter(active ? "all" : segment.id)}
+                        className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
+                          active
+                            ? "border-stone-950 bg-stone-950 text-white"
+                            : "border-stone-200 bg-white hover:border-stone-400"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold">{segment.label}</p>
+                            <p className="mt-1 text-xs opacity-75">{segment.description}</p>
+                          </div>
+                          <p className="text-2xl font-black">{segment.count}</p>
+                        </div>
+                        <div className="mt-3 h-2 rounded-full bg-stone-200/70">
+                          <div
+                            className={`h-2 rounded-full ${active ? "bg-white" : "bg-stone-900"}`}
+                            style={{ width: `${(segment.count / maxCount) * 100}%` }}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </Panel>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+          <Panel
+            title="Trend and Volatility"
+            description="Track whether the current load is rising against the recent baseline or settling down."
+          >
+            <div className="h-[340px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={[...(trendModel.weeks ?? [])].reverse()}>
+                <ComposedChart data={[...(trendModel.weeks ?? [])].reverse()}>
                   <defs>
                     <linearGradient id="incompleteFill" x1="0" x2="0" y1="0" y2="1">
                       <stop offset="0%" stopColor="#b45309" stopOpacity={0.35} />
@@ -520,194 +703,247 @@ export default function SlideDeckVisualizer() {
                   </defs>
                   <CartesianGrid vertical={false} stroke="#eadfcf" />
                   <XAxis dataKey="weekId" tick={{ fill: "#6b5c43", fontSize: 12 }} />
-                  <YAxis tick={{ fill: "#6b5c43", fontSize: 12 }} allowDecimals={false} />
+                  <YAxis yAxisId="left" tick={{ fill: "#6b5c43", fontSize: 12 }} allowDecimals={false} />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fill: "#6b5c43", fontSize: 12 }}
+                    domain={[0, 100]}
+                  />
                   <Tooltip />
-                  <Area type="monotone" dataKey="incompleteItems" stroke="#b45309" fill="url(#incompleteFill)" strokeWidth={3} />
-                  <Area type="monotone" dataKey="peopleOnList" stroke="#155e75" fill="#155e7520" strokeWidth={2} />
-                </AreaChart>
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="incompleteItems"
+                    stroke="#b45309"
+                    fill="url(#incompleteFill)"
+                    strokeWidth={3}
+                  />
+                  <Bar yAxisId="left" dataKey="peopleOnList" fill="#155e75" radius={[8, 8, 0, 0]} barSize={20} />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="completionRate"
+                    stroke="#15803d"
+                    strokeWidth={3}
+                    dot={{ r: 3 }}
+                  />
+                  {selectedWeek ? <ReferenceLine x={selectedWeek} stroke="#1c1917" strokeDasharray="4 4" /> : null}
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </Panel>
 
           <Panel
-            title="Leadership Readout"
-            description="Short narrative signals for the current week."
+            title="Recent Instability"
+            description="Use compact deltas to judge if the week is escalating, cooling, or simply noisy."
           >
-            <div className="grid gap-4">
-              <NarrativeCard
-                title="What changed"
-                body={
-                  metrics?.prevWeekId
-                    ? `${comparisonModel.summary.find((item) => item.id === "worsened")?.count ?? 0} users carry a higher load than ${metrics.prevWeekId}. ${comparisonModel.summary.find((item) => item.id === "improved")?.count ?? 0} improved.`
-                    : "Week-over-week comparison is unavailable until a prior week exists."
-                }
-              />
-              <NarrativeCard
-                title="Status split"
-                body={`${statusModel.totals.notStarted} sessions are not started and ${statusModel.totals.inProgress} are still in progress.`}
-              />
-              <NarrativeCard
-                title="Persistent risk"
-                body={`${checkpointPanel.summary.repeaters} users have appeared on at least two checkpoints. ${checkpointPanel.summary.persistent} have appeared three or more times.`}
-              />
+            <div className="grid gap-3">
+              {weekChangeModel.changeItems.map((item) => (
+                <div key={item.id} className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">{item.label}</p>
+                  <p className="mt-2 text-3xl font-black text-stone-950">{item.value}</p>
+                  <p className="mt-2 text-sm text-stone-600">
+                    {item.delta === null ? "No prior comparison" : formatDelta(item.delta, " vs prior")}
+                  </p>
+                </div>
+              ))}
+
+              <div className="rounded-[1.4rem] border border-stone-200 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Trend Classification</p>
+                <p className="mt-2 text-3xl font-black text-stone-950">{weekChangeModel.recentInstability.label}</p>
+                <p className="mt-2 text-sm leading-6 text-stone-600">{weekChangeModel.recentInstability.detail}</p>
+                <p className="mt-3 text-xs uppercase tracking-[0.16em] text-stone-500">
+                  {weekChangeModel.recentInstability.deltaFromMedian === null
+                    ? "Recent median unavailable"
+                    : `Delta vs recent median: ${formatDelta(
+                        weekChangeModel.recentInstability.deltaFromMedian
+                      )}`}
+                </p>
+                <div className="mt-4 h-[120px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={weekChangeModel.recentInstability.window}>
+                      <CartesianGrid vertical={false} stroke="#eadfcf" />
+                      <XAxis dataKey="weekId" hide />
+                      <YAxis hide />
+                      <Tooltip />
+                      <Bar dataKey="incompleteItems" fill="#57534e" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
             </div>
           </Panel>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
           <Panel
-            title="Week-Over-Week Segmentation"
-            description={
-              comparisonModel.prevWeekId
-                ? `Click a bucket to filter the user narrative by change versus ${comparisonModel.prevWeekId}.`
-                : "A prior week is required before segmentation can classify movement."
-            }
+            title="Concentration and Hotspots"
+            description="See whether the risk is concentrated in a few users or spread more evenly across the current queue."
           >
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {comparisonModel.summary.map((segment) => {
-                const active = segmentFilter === segment.id;
+            <div className="grid gap-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MetricCard
+                  label="Top 5 User Share"
+                  value={formatPercent(concentrationModel.summary.topUserShare)}
+                  detail="Share of current incomplete sessions"
+                />
+                <MetricCard
+                  label="Top 3 Title Share"
+                  value={formatPercent(concentrationModel.summary.topTitleShare)}
+                  detail="Share of current incomplete sessions"
+                />
+              </div>
+              <div className="h-[260px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={loadDistributionModel.buckets}>
+                    <CartesianGrid vertical={false} stroke="#eadfcf" />
+                    <XAxis dataKey="label" tick={{ fill: "#6b5c43", fontSize: 12 }} />
+                    <YAxis tick={{ fill: "#6b5c43", fontSize: 12 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="userCount" fill="#1f6f78" radius={[10, 10, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {loadDistributionModel.buckets.map((bucket) => (
+                  <div key={bucket.id} className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">{bucket.label}</p>
+                    <p className="mt-2 text-3xl font-black text-stone-950">{bucket.userCount}</p>
+                    <p className="mt-2 text-sm text-stone-600">
+                      {formatPercent(bucket.shareOfUsers)} of users, {bucket.sessionCount} sessions
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Title Impact Matrix"
+            description="Titles are ranked by incomplete volume and show whether they hit a few people hard or many people lightly."
+          >
+            <div className="space-y-3">
+              {titleOptions.map((title) => {
+                const active = titleFilter === title.title;
                 return (
                   <button
-                    key={segment.id}
+                    key={title.title}
                     type="button"
-                    onClick={() => setSegmentFilter(active ? "all" : segment.id)}
-                    className={`rounded-[1.6rem] border px-4 py-4 text-left transition ${
+                    onClick={() => setTitleFilter(active ? "" : title.title)}
+                    className={`w-full rounded-[1.4rem] border px-4 py-4 text-left transition ${
                       active
-                        ? "border-stone-950 bg-stone-950 text-white shadow-[0_20px_50px_rgba(41,37,36,0.25)]"
-                        : "border-stone-200 bg-stone-50 text-stone-900 hover:border-stone-400"
+                        ? "border-stone-950 bg-stone-950 text-white"
+                        : "border-stone-200 bg-stone-50 hover:border-stone-400"
                     }`}
                   >
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-70">{segment.label}</p>
-                    <p className="mt-3 text-4xl font-black">{segment.count}</p>
-                    <p className="mt-2 text-sm opacity-80">{segment.description}</p>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{title.title}</p>
+                        <p className="mt-1 text-xs opacity-75">
+                          {title.userCount} affected users • {formatPercent(title.sessionShare)} of sessions
+                        </p>
+                      </div>
+                      <p className="text-3xl font-black">{title.incompleteCount}</p>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                      <MatrixBar
+                        label="Session share"
+                        value={title.sessionShare}
+                        active={active}
+                      />
+                      <MatrixBar
+                        label="User share"
+                        value={title.userShare}
+                        active={active}
+                      />
+                    </div>
                   </button>
                 );
               })}
-            </div>
-          </Panel>
 
-          <Panel title="Status Split" description="Current-week risk mix and age of open sessions.">
-            <div className="grid gap-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <FilterTile
-                  active={statusFilter === "not started"}
-                  label="Not Started"
-                  value={statusModel.totals.notStarted}
-                  onClick={() => setStatusFilter(statusFilter === "not started" ? "all" : "not started")}
-                />
-                <FilterTile
-                  active={statusFilter === "in progress"}
-                  label="In Progress"
-                  value={statusModel.totals.inProgress}
-                  onClick={() => setStatusFilter(statusFilter === "in progress" ? "all" : "in progress")}
-                />
-              </div>
-              <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-                <div className="h-[180px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={statusModel.distributions}
-                        dataKey="value"
-                        nameKey="label"
-                        innerRadius={42}
-                        outerRadius={70}
-                        paddingAngle={4}
-                      >
-                        <Cell fill="#be123c" />
-                        <Cell fill="#d97706" />
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="space-y-3">
-                  {statusModel.agingBuckets.map((bucket) => (
-                    <div key={bucket.label}>
-                      <div className="mb-1 flex items-center justify-between text-sm text-stone-600">
-                        <span>{bucket.label}</span>
-                        <span>{bucket.count}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-stone-100">
-                        <div
-                          className="h-2 rounded-full bg-stone-900"
-                          style={{
-                            width: `${statusModel.totals.all ? (bucket.count / statusModel.totals.all) * 100 : 0}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </Panel>
-        </section>
-
-        <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-          <Panel title="Title Hotspots" description="Top incomplete training titles for the selected week.">
-            <div className="space-y-3">
-              {titleHotspots.map((title) => (
-                <button
-                  key={title.title}
-                  type="button"
-                  onClick={() => setTitleFilter(titleFilter === title.title ? "" : title.title)}
-                  className={`flex w-full items-center justify-between rounded-[1.4rem] border px-4 py-4 text-left transition ${
-                    titleFilter === title.title
-                      ? "border-stone-950 bg-stone-950 text-white"
-                      : "border-stone-200 bg-stone-50 hover:border-stone-400"
-                  }`}
-                >
-                  <div>
-                    <p className="text-sm font-semibold">{title.title}</p>
-                    <p className="mt-1 text-xs opacity-75">{title.userCount} affected users</p>
-                  </div>
-                  <p className="text-3xl font-black">{title.incompleteCount}</p>
-                </button>
-              ))}
-              {!titleHotspots.length ? (
+              {!titleOptions.length ? (
                 <div className="rounded-[1.4rem] border border-dashed border-stone-300 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">
                   No hotspot titles are available for this week.
                 </div>
               ) : null}
             </div>
           </Panel>
+        </section>
 
-          <Panel title="Checkpoint Persistence" description="Users with repeat checkpoint exposure.">
-            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="space-y-3">
-                {checkpointPanel.topRecurring.map((user) => (
-                  <div
-                    key={user.email}
-                    className="rounded-[1.4rem] border border-stone-200 bg-stone-50 px-4 py-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-stone-900">{shortName(user.name)}</p>
-                        <p className="mt-1 text-xs text-stone-500">
-                          Last seen {user.lastSeenCheckpointDate ?? "Unknown"}
-                        </p>
-                      </div>
-                      <p className="text-3xl font-black text-stone-950">{user.checkpointsOnList}</p>
-                    </div>
-                  </div>
-                ))}
+        <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+          <Panel
+            title="Persistent Risk Leaderboard"
+            description="These users have shown repeat checkpoint exposure and are the best signal for risk that is not clearing."
+          >
+            <div className="grid gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MetricCard
+                  label="Current Week Recurring"
+                  value={checkpointExposureModel.currentWeek.recurringUsers}
+                  detail={`${formatPercent(checkpointExposureModel.currentWeek.recurringShare)} of visible users`}
+                />
+                <MetricCard
+                  label="Current Week Persistent"
+                  value={checkpointExposureModel.currentWeek.persistentUsers}
+                  detail={`${formatPercent(checkpointExposureModel.currentWeek.persistentShare)} of visible users`}
+                />
               </div>
-              <div className="h-[240px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={checkpointPanel.timeline}>
-                    <CartesianGrid vertical={false} stroke="#eadfcf" />
-                    <XAxis dataKey="checkpointDate" tick={{ fill: "#6b5c43", fontSize: 11 }} />
-                    <YAxis tick={{ fill: "#6b5c43", fontSize: 11 }} allowDecimals={false} />
-                    <Tooltip />
-                    <Bar dataKey="userCount" fill="#57534e" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="space-y-3">
+                {checkpointExposureModel.leaderboard.slice(0, 8).map((user) => (
+                  <button
+                    key={`${user.key}-${user.email}`}
+                    type="button"
+                    onClick={() => handlePersistentUserSelect(user)}
+                    className="flex w-full items-center justify-between gap-4 rounded-[1.4rem] border border-stone-200 bg-stone-50 px-4 py-4 text-left transition hover:border-stone-400"
+                  >
+                    <div>
+                      <p className="font-semibold text-stone-900">{shortName(user.name)}</p>
+                      <p className="mt-1 text-xs text-stone-500">{user.email || "No email available"}</p>
+                      <p className="mt-2 text-xs text-stone-500">
+                        First seen {user.firstSeenCheckpointDate ?? "Unknown"} • Last seen{" "}
+                        {user.lastSeenCheckpointDate ?? "Unknown"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-3xl font-black text-stone-950">{user.checkpointsOnList}</p>
+                      <p className="text-xs uppercase tracking-[0.18em] text-stone-500">Checkpoints</p>
+                    </div>
+                  </button>
+                ))}
+                {!checkpointExposureModel.leaderboard.length ? (
+                  <div className="rounded-[1.4rem] border border-dashed border-stone-300 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">
+                    No checkpoint recurrence data is available for the current week.
+                  </div>
+                ) : null}
               </div>
             </div>
           </Panel>
-        </section>
 
+          <Panel
+            title="Checkpoint Exposure Trend"
+            description="Separate total checkpoint load from repeat exposure and new additions to the checkpoint list."
+          >
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={recentCheckpointTimeline}>
+                  <CartesianGrid vertical={false} stroke="#eadfcf" />
+                  <XAxis dataKey="checkpointDate" tick={{ fill: "#6b5c43", fontSize: 11 }} />
+                  <YAxis tick={{ fill: "#6b5c43", fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="userCount" fill="#57534e" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="repeatUserCount" fill="#b45309" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="newUserCount" fill="#1d4ed8" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <CheckpointBadge label="Tracked Users" value={checkpointExposureModel.currentWeek.trackedUsers} />
+              <CheckpointBadge label="Recurring Users" value={checkpointExposureModel.currentWeek.recurringUsers} />
+              <CheckpointBadge label="Persistent Users" value={checkpointExposureModel.currentWeek.persistentUsers} />
+            </div>
+          </Panel>
+        </section>
       </div>
 
       <UserDetailDialog profile={selectedProfile} onClose={() => setSelectedUserKey(null)} />
@@ -743,27 +979,47 @@ function QuickStat({ label, value, detail, tone }) {
   );
 }
 
-function NarrativeCard({ title, body }) {
+function ExecutiveTag({ label, value }) {
   return (
-    <article className="rounded-[1.6rem] border border-stone-200 bg-stone-50 px-4 py-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">{title}</p>
-      <p className="mt-3 text-sm leading-6 text-stone-700">{body}</p>
+    <div className="rounded-full border border-stone-300 bg-stone-50 px-4 py-2 text-sm text-stone-700">
+      <span className="font-semibold text-stone-900">{label}:</span> {value}
+    </div>
+  );
+}
+
+function MetricCard({ label, value, detail }) {
+  return (
+    <article className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">{label}</p>
+      <p className="mt-2 text-3xl font-black text-stone-950">{value}</p>
+      {detail ? <p className="mt-2 text-sm text-stone-600">{detail}</p> : null}
     </article>
   );
 }
 
-function FilterTile({ label, value, active, onClick }) {
+function MatrixBar({ label, value, active }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
-        active ? "border-stone-950 bg-stone-950 text-white" : "border-stone-200 bg-stone-50 text-stone-900"
-      }`}
-    >
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-70">{label}</p>
-      <p className="mt-2 text-4xl font-black">{value}</p>
-    </button>
+    <div>
+      <div className="mb-1 flex items-center justify-between text-xs opacity-75">
+        <span>{label}</span>
+        <span>{formatPercent(value)}</span>
+      </div>
+      <div className={`h-2 rounded-full ${active ? "bg-white/20" : "bg-stone-200"}`}>
+        <div
+          className={`h-2 rounded-full ${active ? "bg-white" : "bg-stone-900"}`}
+          style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CheckpointBadge({ label, value }) {
+  return (
+    <div className="rounded-[1.3rem] border border-stone-200 bg-stone-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">{label}</p>
+      <p className="mt-2 text-2xl font-black text-stone-950">{value}</p>
+    </div>
   );
 }
 
@@ -872,7 +1128,9 @@ function UserDetailDialog({ profile, onClose }) {
                   {profile.statusCounts.map((status) => (
                     <span
                       key={status.label}
-                      className={`rounded-full px-3 py-2 text-sm font-semibold ${statusTone(status.label.toLowerCase())}`}
+                      className={`rounded-full px-3 py-2 text-sm font-semibold ${statusTone(
+                        status.label.toLowerCase()
+                      )}`}
                     >
                       {status.label}: {status.value}
                     </span>
