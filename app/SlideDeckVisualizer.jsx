@@ -66,6 +66,32 @@ function statusTone(status) {
   return "bg-stone-100 text-stone-700";
 }
 
+function lerpColor(c1, c2, t) {
+  return {
+    r: Math.round(c1.r + (c2.r - c1.r) * t),
+    g: Math.round(c1.g + (c2.g - c1.g) * t),
+    b: Math.round(c1.b + (c2.b - c1.b) * t),
+  };
+}
+
+function toRgb({ r, g, b }) {
+  return `rgb(${r},${g},${b})`;
+}
+
+function getRiskStyle(ratio) {
+  // 0 = low risk (cool blue), 1 = high risk (warm rose), 3-stop via amber midpoint
+  const low  = { light: { r: 239, g: 246, b: 255 }, dark: { r: 219, g: 234, b: 254 }, border: { r: 147, g: 197, b: 253 } };
+  const mid  = { light: { r: 255, g: 251, b: 235 }, dark: { r: 254, g: 243, b: 199 }, border: { r: 252, g: 211, b: 77  } };
+  const high = { light: { r: 255, g: 241, b: 242 }, dark: { r: 254, g: 205, b: 211 }, border: { r: 252, g: 165, b: 165 } };
+  const t = ratio <= 0.5 ? ratio * 2 : (ratio - 0.5) * 2;
+  const from = ratio <= 0.5 ? low : mid;
+  const to   = ratio <= 0.5 ? mid : high;
+  return {
+    background:  `linear-gradient(145deg, ${toRgb(lerpColor(from.light, to.light, t))} 0%, ${toRgb(lerpColor(from.dark, to.dark, t))} 100%)`,
+    borderColor: toRgb(lerpColor(from.border, to.border, t)),
+  };
+}
+
 export default function SlideDeckVisualizer() {
   const [selectedWeek, setSelectedWeek] = useState("");
   const [snapshot, setSnapshot] = useState(null);
@@ -201,6 +227,9 @@ export default function SlideDeckVisualizer() {
       const bDays = Number.isFinite(b.oldestOpenDays) ? b.oldestOpenDays : -1;
       return b.sessionCount - a.sessionCount || bDays - aDays;
     });
+
+  const maxSessionCount = visibleProfiles.length > 0 ? visibleProfiles[0].sessionCount : 1;
+  const minSessionCount = visibleProfiles.length > 0 ? visibleProfiles[visibleProfiles.length - 1].sessionCount : 1;
 
   const selectedProfile = selectedUserKey ? userProfiles[selectedUserKey] ?? null : null;
   const latestTrend = trendModel.latest;
@@ -391,13 +420,22 @@ export default function SlideDeckVisualizer() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {visibleProfiles.map((profile) => (
+          <div
+            className="mt-6 flex gap-4 overflow-x-auto pb-4"
+            style={{ scrollbarWidth: "thin", scrollbarColor: "#d6c9b0 transparent" }}
+          >
+            {visibleProfiles.map((profile) => {
+              const ratio =
+                maxSessionCount === minSessionCount
+                  ? 0.5
+                  : (profile.sessionCount - minSessionCount) / (maxSessionCount - minSessionCount);
+              return (
               <button
                 key={profile.key}
                 type="button"
                 onClick={() => setSelectedUserKey(profile.key)}
-                className="rounded-[1.6rem] border border-stone-200 bg-[linear-gradient(180deg,#fffdf9,#f6efe2)] p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-stone-400 hover:shadow-md"
+                style={getRiskStyle(ratio)}
+                className="flex-none w-72 rounded-[1.6rem] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -458,10 +496,11 @@ export default function SlideDeckVisualizer() {
                   </span>
                 </div>
               </button>
-            ))}
+              );
+            })}
 
             {!visibleProfiles.length ? (
-              <div className="sm:col-span-2 xl:col-span-3 rounded-[1.4rem] border border-dashed border-stone-300 bg-stone-50 px-4 py-10 text-center text-sm text-stone-500">
+              <div className="min-w-full rounded-[1.4rem] border border-dashed border-stone-300 bg-stone-50 px-4 py-10 text-center text-sm text-stone-500">
                 No users match the current filter combination.
               </div>
             ) : null}
