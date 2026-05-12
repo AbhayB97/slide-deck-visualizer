@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"/mnt/c/Users/ADMIN/Desktop/AB-code/slide-deck-visualizer\")",
+      "Read(//mnt/c/Users/ADMIN/Desktop/AB-code/**)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
