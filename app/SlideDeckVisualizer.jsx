@@ -263,8 +263,8 @@ export default function SlideDeckVisualizer() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#fff7e6_0%,#efe6d1_38%,#e7dbc1_100%)] px-4 py-6 text-stone-900 sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#fff7e6_0%,#efe6d1_38%,#e7dbc1_100%)] px-4 py-6 text-stone-900 sm:px-5">
+      <div className="flex w-full flex-col gap-6">
         <section className="overflow-hidden rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 shadow-[0_25px_80px_rgba(120,93,35,0.12)] backdrop-blur">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="max-w-3xl">
@@ -420,10 +420,7 @@ export default function SlideDeckVisualizer() {
             </div>
           </div>
 
-          <div
-            className="mt-6 flex gap-4 overflow-x-auto pb-4"
-            style={{ scrollbarWidth: "thin", scrollbarColor: "#d6c9b0 transparent" }}
-          >
+          <div className="mt-6 grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
             {visibleProfiles.map((profile) => {
               const ratio =
                 maxSessionCount === minSessionCount
@@ -435,7 +432,7 @@ export default function SlideDeckVisualizer() {
                 type="button"
                 onClick={() => setSelectedUserKey(profile.key)}
                 style={getRiskStyle(ratio)}
-                className="flex-none w-72 rounded-[1.6rem] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                className="rounded-[1.6rem] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -500,7 +497,7 @@ export default function SlideDeckVisualizer() {
             })}
 
             {!visibleProfiles.length ? (
-              <div className="min-w-full rounded-[1.4rem] border border-dashed border-stone-300 bg-stone-50 px-4 py-10 text-center text-sm text-stone-500">
+              <div className="col-span-full rounded-[1.4rem] border border-dashed border-stone-300 bg-stone-50 px-4 py-10 text-center text-sm text-stone-500">
                 No users match the current filter combination.
               </div>
             ) : null}
