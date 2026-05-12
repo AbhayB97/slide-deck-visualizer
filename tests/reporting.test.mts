@@ -132,6 +132,38 @@ test("buildWeekChangeStripModel classifies recent direction from trend data", ()
   assert.equal(model.recentInstability.label, "Rising");
 });
 
+test("buildComparisonModel separates new users from worsened repeat users", () => {
+  const comparison = buildComparisonModel(
+    parsedRows,
+    [
+      {
+        email: "alex@example.com",
+        name: "Alex Stone",
+        incompleteCount: 2,
+        deltaFromPrevWeek: 1,
+      },
+      {
+        email: "blair@example.com",
+        name: "Blair North",
+        incompleteCount: 1,
+        deltaFromPrevWeek: -1,
+      },
+      {
+        email: "casey@example.com",
+        name: "Casey Vale",
+        incompleteCount: 1,
+        deltaFromPrevWeek: 1,
+      },
+    ],
+    "2026-Week-17"
+  );
+
+  assert.equal(comparison.buckets.worsened.length, 1);
+  assert.equal(comparison.buckets.worsened[0]?.name, "Alex Stone");
+  assert.equal(comparison.buckets.newThisWeek.length, 1);
+  assert.equal(comparison.buckets.newThisWeek[0]?.name, "Casey Vale");
+});
+
 test("buildCheckpointExposureModel tracks recurring and persistent share", () => {
   const profiles = buildUserProfiles(parsedRows, metricsUsers, checkpointUsers);
   const model = buildCheckpointExposureModel(

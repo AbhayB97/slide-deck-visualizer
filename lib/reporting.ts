@@ -255,6 +255,11 @@ export function buildComparisonModel(
       buckets.repeated.push(user);
       continue;
     }
+    const inferredPrevCount = Math.max(0, user.count - user.delta);
+    if (user.delta > 0 && inferredPrevCount === 0) {
+      buckets.newThisWeek.push(user);
+      continue;
+    }
     if (user.delta > 0) {
       buckets.worsened.push(user);
       continue;
