@@ -83,10 +83,13 @@ export async function fetchMasterUsers(): Promise<{ email: string; name: string 
 export async function fetchMasterFileMetadata(): Promise<MasterFileMetadata> {
   try {
     const metadata = await head(MASTER_PATH, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    const rawUploadedAt = metadata.uploadedAt;
     const uploadedAt =
-      typeof (metadata as { uploadedAt?: string }).uploadedAt === 'string'
-        ? (metadata as { uploadedAt?: string }).uploadedAt ?? null
-        : null;
+      rawUploadedAt instanceof Date
+        ? rawUploadedAt.toISOString()
+        : typeof rawUploadedAt === 'string'
+          ? rawUploadedAt
+          : null;
 
     return { uploadedAt };
   } catch (err: unknown) {
