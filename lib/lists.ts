@@ -2,6 +2,10 @@ import { head } from '@vercel/blob';
 import { MASTER_PATH } from '@/lib/processMaster';
 import { fetchLatestSnapshot } from '@/lib/snapshots';
 
+export type MasterFileMetadata = {
+  uploadedAt: string | null;
+};
+
 function normalizeEmail(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value.trim().toLowerCase();
@@ -71,6 +75,30 @@ export async function fetchMasterUsers(): Promise<{ email: string; name: string 
   } catch (err: any) {
     if (err?.status === 404 || err?.statusCode === 404 || err?.code === 'blob_not_found') {
       return [];
+    }
+    throw err;
+  }
+}
+
+export async function fetchMasterFileMetadata(): Promise<MasterFileMetadata> {
+  try {
+    const metadata = await head(MASTER_PATH, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    const uploadedAt =
+      typeof (metadata as { uploadedAt?: string }).uploadedAt === 'string'
+        ? (metadata as { uploadedAt?: string }).uploadedAt ?? null
+        : null;
+
+    return { uploadedAt };
+  } catch (err: unknown) {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      ('status' in err || 'statusCode' in err || 'code' in err) &&
+      ((err as { status?: number }).status === 404 ||
+        (err as { statusCode?: number }).statusCode === 404 ||
+        (err as { code?: string }).code === 'blob_not_found')
+    ) {
+      return { uploadedAt: null };
     }
     throw err;
   }

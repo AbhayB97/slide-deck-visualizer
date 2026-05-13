@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 
 type UploadResponse = {
@@ -9,11 +9,20 @@ type UploadResponse = {
   filePath: string;
   fileName: string;
   uploadedAt: string;
+  error?: string;
 };
 
 type MasterResponse = {
   success: boolean;
   count?: number;
+  error?: string;
+};
+
+type MasterFileInfoResponse = {
+  success: boolean;
+  uploadedAt: string | null;
+  count: number;
+  hasFile: boolean;
   error?: string;
 };
 
@@ -26,12 +35,35 @@ export default function AdminUploadMasterPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [headers, setHeaders] = useState<string[]>([]);
   const [loadingHeaders, setLoadingHeaders] = useState(false);
+  const [masterInfo, setMasterInfo] = useState<MasterFileInfoResponse | null>(null);
+  const [loadingMasterInfo, setLoadingMasterInfo] = useState(true);
   const [mapping, setMapping] = useState({
     firstName: "",
     lastName: "",
     fullName: "",
     email: "",
   });
+
+  useEffect(() => {
+    void loadMasterInfo();
+  }, []);
+
+  const loadMasterInfo = async () => {
+    try {
+      setLoadingMasterInfo(true);
+      const res = await fetch("/api/master-file");
+      const data: MasterFileInfoResponse = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to load current master file");
+      }
+      setMasterInfo(data);
+    } catch (err) {
+      setMasterInfo(null);
+      setError((prev) => prev ?? (err instanceof Error ? err.message : "Failed to load current master file"));
+    } finally {
+      setLoadingMasterInfo(false);
+    }
+  };
 
   const handleUpload = async (e: FormEvent) => {
     e.preventDefault();
@@ -54,7 +86,7 @@ export default function AdminUploadMasterPage() {
       });
       const data: UploadResponse = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error((data as any)?.error || "Upload failed");
+        throw new Error(data.error || "Upload failed");
       }
       setUploadResult(data);
       await loadHeaders(data.fileUrl);
@@ -87,7 +119,7 @@ export default function AdminUploadMasterPage() {
       const delimiter = detectDelimiter(firstLine);
       const parsed = firstLine.split(delimiter).map((h) => h.replace(/^\uFEFF/, "").trim());
       setHeaders(parsed.filter(Boolean));
-    } catch (err) {
+    } catch {
       setHeaders([]);
       setError("Could not read CSV headers for mapping");
     } finally {
@@ -134,6 +166,7 @@ export default function AdminUploadMasterPage() {
         throw new Error(data.error || "Processing failed");
       }
       setMessage(`Master list saved (${data.count ?? 0} names)`);
+      await loadMasterInfo();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Processing failed");
     } finally {
@@ -159,6 +192,39 @@ export default function AdminUploadMasterPage() {
             >
               Upload weekly CSV
             </Link>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Current Master File</p>
+              <p className="text-sm text-gray-700 mt-1">
+                Last updated:{" "}
+                {loadingMasterInfo
+                  ? "Loading..."
+                  : masterInfo?.uploadedAt
+                    ? new Date(masterInfo.uploadedAt).toLocaleString()
+                    : "No master file yet"}
+              </p>
+              {!loadingMasterInfo && masterInfo?.hasFile ? (
+                <p className="text-xs text-gray-500 mt-1">
+                  {masterInfo.count} records in the normalized master file
+                </p>
+              ) : null}
+            </div>
+            {masterInfo?.hasFile ? (
+              <a
+                href="/api/master-file/export"
+                className="inline-flex items-center justify-center px-4 py-2 rounded-md border border-gray-300 bg-white text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-100"
+              >
+                Export Current Master
+              </a>
+            ) : (
+              <span className="inline-flex items-center justify-center px-4 py-2 rounded-md border border-gray-200 bg-gray-100 text-sm font-semibold text-gray-400">
+                Export Current Master
+              </span>
+            )}
           </div>
         </div>
 
