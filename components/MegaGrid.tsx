@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { formatNameForBlob } from "@/lib/avatarNames";
 
 type ListsResponse = {
   success: boolean;
@@ -23,15 +24,6 @@ const SLOW_DELAY_MS = 320;
 const FAST_PHASE_MS = 3000;
 const TOTAL_DRAW_MS = 5600;
 const REVEAL_DELAY_MS = 450;
-
-function formatNameForBlob(name: string) {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 function getAvatarUrls(name: string, blobBaseUrl: string) {
   const formattedName = formatNameForBlob(name);

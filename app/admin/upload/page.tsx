@@ -9,6 +9,7 @@ type UploadResponse = {
   filePath: string;
   fileName: string;
   uploadedAt: string;
+  error?: string;
 };
 
 type SnapshotResponse = {
@@ -70,7 +71,7 @@ export default function AdminUploadPage() {
       });
       const data: UploadResponse = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error((data as any)?.error || "Upload failed");
+        throw new Error(data.error || "Upload failed");
       }
       setUploadResult(data);
       await loadHeaders(data.fileUrl);
@@ -100,7 +101,7 @@ export default function AdminUploadPage() {
       const delimiter = detectDelimiter(firstLine);
       const parsed = firstLine.split(delimiter).map((h) => h.replace(/^\uFEFF/, "").trim());
       setHeaders(parsed.filter(Boolean));
-    } catch (err) {
+    } catch {
       setHeaders([]);
       setError("Could not read CSV headers for mapping");
     } finally {
@@ -163,6 +164,10 @@ export default function AdminUploadPage() {
             <span className="mx-2 text-gray-400">·</span>
             <Link href="/admin/upload-master" className="underline">
               Upload master list
+            </Link>
+            <span className="mx-2 text-gray-400">·</span>
+            <Link href="/admin/upload-photos" className="underline">
+              Upload grid photos
             </Link>
           </div>
         </div>

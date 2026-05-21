@@ -192,6 +192,12 @@ export default function AdminUploadMasterPage() {
             >
               Upload weekly CSV
             </Link>
+            <Link
+              href="/admin/upload-photos"
+              className="text-sm text-blue-700 underline"
+            >
+              Upload photos
+            </Link>
           </div>
         </div>
 
