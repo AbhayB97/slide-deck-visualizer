@@ -22,7 +22,7 @@ for (const name of requiredEnv) {
 
 const bucket = process.env.OBJECT_STORAGE_BUCKET;
 const dryRun = process.argv.includes('--dry-run');
-const overwrite = process.argv.includes('--overwrite');
+const skipExisting = process.argv.includes('--skip-existing');
 const prefixArg = process.argv.find((arg) => arg.startsWith('--prefix='));
 const prefix = prefixArg ? prefixArg.slice('--prefix='.length) : undefined;
 
@@ -37,12 +37,15 @@ const s3 = new S3Client({
 });
 
 function contentTypeFor(pathname, fallback) {
-  if (fallback) return fallback;
   const lower = pathname.toLowerCase();
   if (lower.endsWith('.json')) return 'application/json';
   if (lower.endsWith('.csv')) return 'text/csv';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
   if (lower.endsWith('.txt')) return 'text/plain';
-  return 'application/octet-stream';
+  return fallback || 'application/octet-stream';
 }
 
 async function existsInTarget(pathname) {
@@ -62,14 +65,15 @@ async function migrateBlob(blob) {
   const pathname = blob.pathname;
   const sourceUrl = blob.downloadUrl || blob.url;
 
-  if (!overwrite && await existsInTarget(pathname)) {
-    console.log(`SKIP existing ${pathname}`);
-    return { skipped: 1, copied: 0, failed: 0 };
-  }
+  console.log(`${dryRun ? 'DRY RUN' : 'COPY'} ${pathname}`);
 
-  console.log(`${dryRun ? 'DRY RUN copy' : 'COPY'} ${pathname}`);
   if (dryRun) {
     return { skipped: 0, copied: 1, failed: 0 };
+  }
+
+  if (skipExisting && await existsInTarget(pathname)) {
+    console.log(`SKIP existing ${pathname}`);
+    return { skipped: 1, copied: 0, failed: 0 };
   }
 
   const response = await fetch(sourceUrl);
@@ -113,7 +117,7 @@ async function main() {
         totals.failed += result.failed;
       } catch (err) {
         totals.failed += 1;
-        console.error(`FAIL ${blob.pathname}:`, err?.message || err);
+        console.error(`FAIL ${blob.pathname}:`, err?.name || '', err?.message || err);
       }
     }
 
