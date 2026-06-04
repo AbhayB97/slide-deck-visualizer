@@ -1,4 +1,4 @@
-import { head } from '@vercel/blob';
+import { headObject, isObjectNotFound } from '@/lib/objectStorage';
 import { SNAPSHOT_PATH } from '@/lib/storage';
 import { buildSnapshotPath, fetchHistoryIndex, weekIdFromSnapshotPath } from '@/lib/history';
 import type { ParsedRow, Snapshot } from '@/lib/processCsvSnapshot';
@@ -14,7 +14,7 @@ function toDate(value: unknown) {
 
 async function downloadSnapshot(snapshotId: string): Promise<Snapshot | null> {
   try {
-    const metadata = await head(snapshotId, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    const metadata = await headObject(snapshotId);
     const response = await fetch(metadata.downloadUrl);
     if (!response.ok) {
       throw new Error(`Failed to download snapshot: ${response.status} ${response.statusText}`);
@@ -23,7 +23,6 @@ async function downloadSnapshot(snapshotId: string): Promise<Snapshot | null> {
     const data = (await response.json()) as Snapshot;
     const uploadedAt =
       toDate(data.uploadedAt) ??
-      toDate((metadata as any).uploadedAt) ??
       new Date();
 
     const weekId = data.weekId ?? weekIdFromSnapshotPath(metadata.pathname ?? snapshotId) ?? '';
@@ -35,7 +34,7 @@ async function downloadSnapshot(snapshotId: string): Promise<Snapshot | null> {
       weekId,
     };
   } catch (err: any) {
-    if (err?.status === 404 || err?.code === 'blob_not_found' || err?.statusCode === 404) {
+    if (isObjectNotFound(err)) {
       return null;
     }
     console.error('[snapshots] Failed to fetch snapshot', err);
