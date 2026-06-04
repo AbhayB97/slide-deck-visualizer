@@ -1,7 +1,7 @@
-import { head, put } from "@vercel/blob";
-import { fetchHistoryIndex } from "@/lib/history";
+import { headObject, isObjectNotFound, putObject } from '@/lib/objectStorage';
+import { fetchHistoryIndex } from '@/lib/history';
 
-export const METRICS_DIR = "metrics";
+export const METRICS_DIR = 'metrics';
 
 export type UserWeekMetric = {
   weekId: string;
@@ -24,7 +24,7 @@ export function buildMetricsPath(weekId: string): string {
 }
 
 function normalizeEmail(value: unknown): string {
-  if (typeof value !== "string") return "";
+  if (typeof value !== 'string') return '';
   return value.trim().toLowerCase();
 }
 
@@ -49,7 +49,7 @@ export async function findPrevWeekId(currentWeekId: string): Promise<string | nu
   const history = await fetchHistoryIndex();
   const candidates = (history.weeks ?? [])
     .map((w) => w.weekId)
-    .filter((w) => typeof w === "string" && w && w !== currentWeekId)
+    .filter((w) => typeof w === 'string' && w && w !== currentWeekId)
     .filter((w) => compareWeekIds(w, currentWeekId) < 0)
     .sort(compareWeekIds);
 
@@ -57,22 +57,17 @@ export async function findPrevWeekId(currentWeekId: string): Promise<string | nu
 }
 
 export async function saveWeekMetrics(metrics: WeekMetrics): Promise<WeekMetrics> {
-  const blob = new Blob([JSON.stringify(metrics)], { type: "application/json" });
-  await put(buildMetricsPath(metrics.weekId), blob, {
-    access: "public",
-    addRandomSuffix: false,
+  const blob = new Blob([JSON.stringify(metrics)], { type: 'application/json' });
+  await putObject(buildMetricsPath(metrics.weekId), blob, {
     allowOverwrite: true,
-    contentType: "application/json",
-    token: process.env.BLOB_READ_WRITE_TOKEN,
+    contentType: 'application/json',
   });
   return metrics;
 }
 
 export async function fetchWeekMetrics(weekId: string): Promise<WeekMetrics | null> {
   try {
-    const metadata = await head(buildMetricsPath(weekId), {
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    });
+    const metadata = await headObject(buildMetricsPath(weekId));
     const res = await fetch(metadata.downloadUrl);
     if (!res.ok) return null;
     const data = (await res.json()) as WeekMetrics;
@@ -82,13 +77,13 @@ export async function fetchWeekMetrics(weekId: string): Promise<WeekMetrics | nu
       users: data.users.map((u) => ({
         ...u,
         email: normalizeEmail(u.email),
-        name: typeof u.name === "string" ? u.name.trim() : "",
+        name: typeof u.name === 'string' ? u.name.trim() : '',
         incompleteCount: Number.isFinite(u.incompleteCount) ? u.incompleteCount : 0,
         deltaFromPrevWeek: Number.isFinite(u.deltaFromPrevWeek) ? u.deltaFromPrevWeek : 0,
       })),
     };
-  } catch (err: any) {
-    if (err?.status === 404 || err?.statusCode === 404 || err?.code === "blob_not_found") {
+  } catch (err: unknown) {
+    if (isObjectNotFound(err)) {
       return null;
     }
     throw err;

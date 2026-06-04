@@ -1,4 +1,4 @@
-import { head } from '@vercel/blob';
+import { headObject, isObjectNotFound } from '@/lib/objectStorage';
 import { MASTER_PATH } from '@/lib/processMaster';
 import { fetchLatestSnapshot } from '@/lib/snapshots';
 
@@ -22,13 +22,13 @@ function normalizeNameKey(name: unknown): string {
 
 async function readJsonArray(path: string): Promise<string[]> {
   try {
-    const metadata = await head(path, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    const metadata = await headObject(path);
     const res = await fetch(metadata.downloadUrl);
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data) ? (data as string[]) : [];
-  } catch (err: any) {
-    if (err?.status === 404 || err?.statusCode === 404 || err?.code === 'blob_not_found') {
+  } catch (err: unknown) {
+    if (isObjectNotFound(err)) {
       return [];
     }
     throw err;
@@ -38,7 +38,7 @@ async function readJsonArray(path: string): Promise<string[]> {
 export async function fetchMasterList(): Promise<string[]> {
   // Back-compat: old master list was a string[], new master list is {email,name}[]
   try {
-    const metadata = await head(MASTER_PATH, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    const metadata = await headObject(MASTER_PATH);
     const res = await fetch(metadata.downloadUrl);
     if (!res.ok) return [];
     const data = await res.json();
@@ -51,8 +51,8 @@ export async function fetchMasterList(): Promise<string[]> {
         .filter(Boolean);
     }
     return [];
-  } catch (err: any) {
-    if (err?.status === 404 || err?.statusCode === 404 || err?.code === 'blob_not_found') {
+  } catch (err: unknown) {
+    if (isObjectNotFound(err)) {
       return [];
     }
     throw err;
@@ -61,7 +61,7 @@ export async function fetchMasterList(): Promise<string[]> {
 
 export async function fetchMasterUsers(): Promise<{ email: string; name: string }[]> {
   try {
-    const metadata = await head(MASTER_PATH, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    const metadata = await headObject(MASTER_PATH);
     const res = await fetch(metadata.downloadUrl);
     if (!res.ok) return [];
     const data = await res.json();
@@ -72,8 +72,8 @@ export async function fetchMasterUsers(): Promise<{ email: string; name: string 
         name: typeof x?.name === 'string' ? x.name.trim() : '',
       }))
       .filter((x) => Boolean(x.email) && Boolean(x.name));
-  } catch (err: any) {
-    if (err?.status === 404 || err?.statusCode === 404 || err?.code === 'blob_not_found') {
+  } catch (err: unknown) {
+    if (isObjectNotFound(err)) {
       return [];
     }
     throw err;
@@ -82,25 +82,16 @@ export async function fetchMasterUsers(): Promise<{ email: string; name: string 
 
 export async function fetchMasterFileMetadata(): Promise<MasterFileMetadata> {
   try {
-    const metadata = await head(MASTER_PATH, { token: process.env.BLOB_READ_WRITE_TOKEN });
-    const rawUploadedAt = metadata.uploadedAt;
+    const metadata = await headObject(MASTER_PATH);
+    const rawUploadedAt = metadata.lastModified;
     const uploadedAt =
-      rawUploadedAt instanceof Date
-        ? rawUploadedAt.toISOString()
-        : typeof rawUploadedAt === 'string'
-          ? rawUploadedAt
-          : null;
+      typeof rawUploadedAt === 'string'
+        ? rawUploadedAt
+        : null;
 
     return { uploadedAt };
   } catch (err: unknown) {
-    if (
-      typeof err === 'object' &&
-      err !== null &&
-      ('status' in err || 'statusCode' in err || 'code' in err) &&
-      ((err as { status?: number }).status === 404 ||
-        (err as { statusCode?: number }).statusCode === 404 ||
-        (err as { code?: string }).code === 'blob_not_found')
-    ) {
+    if (isObjectNotFound(err)) {
       return { uploadedAt: null };
     }
     throw err;

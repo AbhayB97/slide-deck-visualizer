@@ -1,10 +1,10 @@
-import { put } from '@vercel/blob';
+import { putObject } from '@/lib/objectStorage';
 import { parse } from 'csv-parse/sync';
 import { getCsv, SNAPSHOT_PATH } from '@/lib/storage';
 import { buildSnapshotPath, getIsoWeekId, upsertHistoryEntry } from '@/lib/history';
 import { findPrevWeekId, saveWeekMetrics, type WeekMetrics } from '@/lib/metrics';
 import { fetchSnapshotByWeek } from '@/lib/snapshots';
-import { getCheckpointInfo } from "@/lib/checkpoints";
+import { getCheckpointInfo } from '@/lib/checkpoints';
 import { upsertCheckpointFromSnapshot } from "@/lib/checkpointHistory";
 
 export type ParsedRow = {
@@ -195,21 +195,15 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
   });
 
   const snapshotPath = buildSnapshotPath(weekId);
-  const uploaded = await put(snapshotPath, blob, {
-    access: 'public',
-    addRandomSuffix: false,
+  const uploaded = await putObject(snapshotPath, blob, {
     allowOverwrite: true,
     contentType: 'application/json',
-    token: process.env.BLOB_READ_WRITE_TOKEN,
   });
 
   // Maintain the legacy "latest" pointer for existing consumers.
-  await put(SNAPSHOT_PATH, blob, {
-    access: 'public',
-    addRandomSuffix: false,
+  await putObject(SNAPSHOT_PATH, blob, {
     allowOverwrite: true,
     contentType: 'application/json',
-    token: process.env.BLOB_READ_WRITE_TOKEN,
   });
 
   await upsertHistoryEntry({

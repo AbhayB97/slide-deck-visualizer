@@ -1,5 +1,5 @@
-import { put } from '@vercel/blob';
 import { parse } from 'csv-parse/sync';
+import { putObject } from '@/lib/objectStorage';
 import { getCsv } from '@/lib/storage';
 
 export type MasterMapping = {
@@ -110,12 +110,9 @@ export async function processMasterCsv(fileUrl: string, mapping: MasterMapping):
 
   const blob = new Blob([JSON.stringify(uniqueEntries)], { type: 'application/json' });
 
-  await put(MASTER_PATH, blob, {
-    access: 'public',
-    addRandomSuffix: false,
-    allowOverwrite: true,
+  await putObject(MASTER_PATH, blob, {
     contentType: 'application/json',
-    token: process.env.BLOB_READ_WRITE_TOKEN,
+    allowOverwrite: true,
   });
 
   return { names: uniqueNames };

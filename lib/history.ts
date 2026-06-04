@@ -1,4 +1,4 @@
-import { head, put } from '@vercel/blob';
+import { headObject, isObjectNotFound, putObject } from '@/lib/objectStorage';
 
 export const HISTORY_INDEX_PATH = 'history/index.json';
 export const SNAPSHOT_DIR = 'snapshots';
@@ -34,10 +34,9 @@ export function buildSnapshotPath(weekId: string): string {
   return `${SNAPSHOT_DIR}/${weekId}.json`;
 }
 
-
 export async function fetchHistoryIndex(): Promise<HistoryIndex> {
   try {
-    const metadata = await head(HISTORY_INDEX_PATH, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    const metadata = await headObject(HISTORY_INDEX_PATH);
     const response = await fetch(metadata.downloadUrl);
     if (!response.ok) {
       throw new Error(`Failed to download history index: ${response.status} ${response.statusText}`);
@@ -46,29 +45,24 @@ export async function fetchHistoryIndex(): Promise<HistoryIndex> {
     return {
       weeks: Array.isArray(data?.weeks) ? data.weeks : [],
     };
-  } catch (err: any) {
-    // FIX: Check for the specific SDK error message "does not exist"
+  } catch (err: unknown) {
     if (
-      err?.status === 404 || 
-      err?.statusCode === 404 || 
-      err?.code === 'blob_not_found' ||
-      err?.message?.includes('does not exist')
+      isObjectNotFound(err) ||
+      (typeof err === 'object' && err !== null &&
+        ((err as { message?: string }).message?.includes('does not exist') ?? false))
     ) {
-      // If the index file doesn't exist yet (first run), return an empty list
       return { weeks: [] };
     }
     console.error('[history] Failed to fetch history index', err);
     throw err;
   }
 }
+
 async function saveHistoryIndex(index: HistoryIndex): Promise<HistoryIndex> {
   const blob = new Blob([JSON.stringify(index)], { type: 'application/json' });
-  await put(HISTORY_INDEX_PATH, blob, {
-    access: 'public',
-    addRandomSuffix: false,
+  await putObject(HISTORY_INDEX_PATH, blob, {
     allowOverwrite: true,
     contentType: 'application/json',
-    token: process.env.BLOB_READ_WRITE_TOKEN,
   });
   return index;
 }
