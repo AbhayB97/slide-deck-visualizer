@@ -1,4 +1,4 @@
-import { put, head } from '@vercel/blob';
+import { headObject, putObject } from '@/lib/objectStorage';
 
 const CSV_CONTENT_TYPE = 'text/csv';
 export const SNAPSHOT_PATH = 'snapshots/latest.json';
@@ -14,7 +14,7 @@ export type UploadedFile = {
 };
 
 /**
- * Upload a CSV file to Vercel Blob.
+ * Upload a CSV file to S3-compatible object storage.
  */
 export async function uploadCsv(file: File, filename: string): Promise<UploadedFile> {
   const pathname = ensureCsvExtension(filename.trim());
@@ -22,11 +22,9 @@ export async function uploadCsv(file: File, filename: string): Promise<UploadedF
   const arrayBuffer = await file.arrayBuffer();
   const blob = new Blob([arrayBuffer], { type: CSV_CONTENT_TYPE });
 
-  const result = await put(pathname, blob, {
-    access: 'public',
+  const result = await putObject(pathname, blob, {
     addRandomSuffix: true,
     contentType: CSV_CONTENT_TYPE,
-    token: process.env.BLOB_READ_WRITE_TOKEN,
   });
 
   return {
@@ -38,11 +36,10 @@ export async function uploadCsv(file: File, filename: string): Promise<UploadedF
 
 /**
  * Download CSV content as text.
- * Supports either a public blob URL or a blob pathname.
+ * Supports either a public object URL or an object pathname.
  */
 export async function getCsv(urlOrPath: string): Promise<string> {
   try {
-    const isUrl = /^https?:\/\//i.test(urlOrPath);
     const fetchDirect = async (url: string) => {
       const res = await fetch(url);
       if (!res.ok) {
@@ -61,11 +58,7 @@ export async function getCsv(urlOrPath: string): Promise<string> {
       }
     };
 
-    if (isUrl) {
-      return await fetchDirect(urlOrPath);
-    }
-
-    const metadata = await head(urlOrPath, { token: process.env.BLOB_READ_WRITE_TOKEN });
+    const metadata = await headObject(urlOrPath);
     if (!metadata?.downloadUrl) {
       throw new Error('File not found or expired');
     }
