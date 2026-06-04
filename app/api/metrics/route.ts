@@ -18,32 +18,45 @@ function normalizeNameKey(name: unknown): string {
     .toLowerCase();
 }
 
-function buildCountsByEmail(snapshot: any): Record<string, { email: string; name: string; count: number }> {
-  const rows: unknown[] = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
+function getParsedRows(snapshot: unknown): unknown[] {
+  if (!snapshot || typeof snapshot !== "object") return [];
+  const rows = (snapshot as { parsedRows?: unknown }).parsedRows;
+  return Array.isArray(rows) ? rows : [];
+}
+
+function getRowValue(row: unknown, key: "email" | "fullName"): unknown {
+  if (!row || typeof row !== "object") return "";
+  return (row as Record<string, unknown>)[key];
+}
+
+function buildCountsByEmail(snapshot: unknown): Record<string, { email: string; name: string; count: number }> {
+  const rows = getParsedRows(snapshot);
   return rows.reduce(
-    (acc: Record<string, { email: string; name: string; count: number }>, row: any) => {
-      const email = normalizeEmail(row?.email);
-    if (!email) return acc;
-    const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
-    acc[email] = acc[email] ?? { email, name, count: 0 };
-    acc[email].count += 1;
-    if (!acc[email].name && name) acc[email].name = name;
-    return acc;
+    (acc: Record<string, { email: string; name: string; count: number }>, row) => {
+      const email = normalizeEmail(getRowValue(row, "email"));
+      if (!email) return acc;
+      const fullName = getRowValue(row, "fullName");
+      const name = typeof fullName === "string" ? fullName.trim() : "";
+      acc[email] = acc[email] ?? { email, name, count: 0 };
+      acc[email].count += 1;
+      if (!acc[email].name && name) acc[email].name = name;
+      return acc;
     },
     {}
   );
 }
 
-function buildCountsByNameKey(snapshot: any): Record<string, { key: string; name: string; count: number }> {
-  const rows: unknown[] = Array.isArray(snapshot?.parsedRows) ? snapshot.parsedRows : [];
+function buildCountsByNameKey(snapshot: unknown): Record<string, { key: string; name: string; count: number }> {
+  const rows = getParsedRows(snapshot);
   return rows.reduce(
-    (acc: Record<string, { key: string; name: string; count: number }>, row: any) => {
-      const name = typeof row?.fullName === "string" ? row.fullName.trim() : "";
-    const key = normalizeNameKey(name);
-    if (!key) return acc;
-    acc[key] = acc[key] ?? { key, name, count: 0 };
-    acc[key].count += 1;
-    return acc;
+    (acc: Record<string, { key: string; name: string; count: number }>, row) => {
+      const fullName = getRowValue(row, "fullName");
+      const name = typeof fullName === "string" ? fullName.trim() : "";
+      const key = normalizeNameKey(name);
+      if (!key) return acc;
+      acc[key] = acc[key] ?? { key, name, count: 0 };
+      acc[key].count += 1;
+      return acc;
     },
     {}
   );

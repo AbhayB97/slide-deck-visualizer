@@ -32,9 +32,9 @@ export async function POST(request: Request) {
     const { names } = await processMasterCsv(fileRef, mapping as MasterMapping);
 
     return NextResponse.json({ success: true, count: names.length });
-  } catch (err: any) {
-    const message = err?.message || 'Failed to process master CSV';
-    const status = message?.includes('not found') || message?.includes('expired') ? 400 : 400;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to process master CSV';
+    const status = 400;
     console.error('[process-master] ERROR:', err);
     return NextResponse.json({ success: false, error: message }, { status });
   }

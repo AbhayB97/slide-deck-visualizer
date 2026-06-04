@@ -1,4 +1,4 @@
-import { headObject, isObjectNotFound, putObject } from '@/lib/objectStorage';
+import { getObjectJson, isObjectNotFound, putObject } from '@/lib/objectStorage';
 import { fetchHistoryIndex } from '@/lib/history';
 
 export const METRICS_DIR = 'metrics';
@@ -67,10 +67,7 @@ export async function saveWeekMetrics(metrics: WeekMetrics): Promise<WeekMetrics
 
 export async function fetchWeekMetrics(weekId: string): Promise<WeekMetrics | null> {
   try {
-    const metadata = await headObject(buildMetricsPath(weekId));
-    const res = await fetch(metadata.downloadUrl);
-    if (!res.ok) return null;
-    const data = (await res.json()) as WeekMetrics;
+    const data = await getObjectJson<WeekMetrics>(buildMetricsPath(weekId));
     if (!data || data.weekId !== weekId || !Array.isArray(data.users)) return null;
     return {
       ...data,
@@ -89,4 +86,3 @@ export async function fetchWeekMetrics(weekId: string): Promise<WeekMetrics | nu
     throw err;
   }
 }
-

@@ -1,4 +1,4 @@
-import { headObject, isObjectNotFound, putObject } from '@/lib/objectStorage';
+import { getObjectJson, isObjectNotFound, putObject } from '@/lib/objectStorage';
 
 export const HISTORY_INDEX_PATH = 'history/index.json';
 export const SNAPSHOT_DIR = 'snapshots';
@@ -36,12 +36,7 @@ export function buildSnapshotPath(weekId: string): string {
 
 export async function fetchHistoryIndex(): Promise<HistoryIndex> {
   try {
-    const metadata = await headObject(HISTORY_INDEX_PATH);
-    const response = await fetch(metadata.downloadUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to download history index: ${response.status} ${response.statusText}`);
-    }
-    const data = (await response.json()) as HistoryIndex;
+    const data = await getObjectJson<HistoryIndex>(HISTORY_INDEX_PATH);
     return {
       weeks: Array.isArray(data?.weeks) ? data.weeks : [],
     };

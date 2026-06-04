@@ -43,8 +43,8 @@ export async function POST(request: NextRequest) {
       offenderCount: snapshot.offenderCount,
       snapshot,
     });
-  } catch (err: any) {
-    const message = err?.message || 'Failed to process CSV';
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to process CSV';
     console.error('[process-csv] ERROR:', err);
     const status = 400;
     return NextResponse.json({ success: false, error: message }, { status });

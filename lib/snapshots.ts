@@ -1,4 +1,4 @@
-import { headObject, isObjectNotFound } from '@/lib/objectStorage';
+import { getObjectJson, headObject, isObjectNotFound } from '@/lib/objectStorage';
 import { SNAPSHOT_PATH } from '@/lib/storage';
 import { buildSnapshotPath, fetchHistoryIndex, weekIdFromSnapshotPath } from '@/lib/history';
 import type { ParsedRow, Snapshot } from '@/lib/processCsvSnapshot';
@@ -15,12 +15,7 @@ function toDate(value: unknown) {
 async function downloadSnapshot(snapshotId: string): Promise<Snapshot | null> {
   try {
     const metadata = await headObject(snapshotId);
-    const response = await fetch(metadata.downloadUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to download snapshot: ${response.status} ${response.statusText}`);
-    }
-
-    const data = (await response.json()) as Snapshot;
+    const data = await getObjectJson<Snapshot>(snapshotId);
     const uploadedAt =
       toDate(data.uploadedAt) ??
       toDate(metadata.lastModified) ??

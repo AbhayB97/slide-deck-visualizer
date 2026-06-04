@@ -1,9 +1,14 @@
-import { headObject, isObjectNotFound } from '@/lib/objectStorage';
+import { getObjectJson, headObject, isObjectNotFound } from '@/lib/objectStorage';
 import { MASTER_PATH } from '@/lib/processMaster';
 import { fetchLatestSnapshot } from '@/lib/snapshots';
 
 export type MasterFileMetadata = {
   uploadedAt: string | null;
+};
+
+type MasterUserRecord = {
+  email?: unknown;
+  name?: unknown;
 };
 
 function normalizeEmail(value: unknown): string {
@@ -20,33 +25,15 @@ function normalizeNameKey(name: unknown): string {
     .toLowerCase();
 }
 
-async function readJsonArray(path: string): Promise<string[]> {
-  try {
-    const metadata = await headObject(path);
-    const res = await fetch(metadata.downloadUrl);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? (data as string[]) : [];
-  } catch (err: unknown) {
-    if (isObjectNotFound(err)) {
-      return [];
-    }
-    throw err;
-  }
-}
-
 export async function fetchMasterList(): Promise<string[]> {
   // Back-compat: old master list was a string[], new master list is {email,name}[]
   try {
-    const metadata = await headObject(MASTER_PATH);
-    const res = await fetch(metadata.downloadUrl);
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data = await getObjectJson<unknown>(MASTER_PATH);
     if (Array.isArray(data) && data.every((x) => typeof x === 'string')) {
       return data as string[];
     }
     if (Array.isArray(data)) {
-      return (data as any[])
+      return data
         .map((x) => (typeof x?.name === 'string' ? x.name.trim() : ''))
         .filter(Boolean);
     }
@@ -61,12 +48,9 @@ export async function fetchMasterList(): Promise<string[]> {
 
 export async function fetchMasterUsers(): Promise<{ email: string; name: string }[]> {
   try {
-    const metadata = await headObject(MASTER_PATH);
-    const res = await fetch(metadata.downloadUrl);
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data = await getObjectJson<unknown>(MASTER_PATH);
     if (!Array.isArray(data)) return [];
-    return (data as any[])
+    return (data as MasterUserRecord[])
       .map((x) => ({
         email: normalizeEmail(x?.email),
         name: typeof x?.name === 'string' ? x.name.trim() : '',
@@ -101,8 +85,8 @@ export async function fetchMasterFileMetadata(): Promise<MasterFileMetadata> {
 export async function fetchHighRiskUsers(): Promise<string[]> {
   const snapshot = await fetchLatestSnapshot();
   if (!snapshot) return [];
-  if (Array.isArray((snapshot as any).highRiskEmails)) {
-    return (snapshot as any).highRiskEmails as string[];
+  if (Array.isArray(snapshot.highRiskEmails)) {
+    return snapshot.highRiskEmails;
   }
   // Back-compat: if old snapshots don't have emails, fall back to name-based offenderList
   return Array.isArray(snapshot.offenderList) ? snapshot.offenderList : [];

@@ -221,7 +221,7 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
   if (prevWeekId) {
     const prevSnapshot = await fetchSnapshotByWeek(prevWeekId);
     const prevRows = Array.isArray(prevSnapshot?.parsedRows) ? prevSnapshot.parsedRows : [];
-    prevCountsByEmail = prevRows.reduce<Record<string, number>>((acc, row: any) => {
+    prevCountsByEmail = prevRows.reduce<Record<string, number>>((acc, row) => {
       const email = typeof row?.email === 'string' ? row.email.trim().toLowerCase() : '';
       if (!email) return acc;
       acc[email] = (acc[email] ?? 0) + 1;

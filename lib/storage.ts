@@ -1,4 +1,4 @@
-import { headObject, isObjectNotFound, putObject } from '@/lib/objectStorage';
+import { getObjectBuffer, putObject } from '@/lib/objectStorage';
 
 const CSV_CONTENT_TYPE = 'text/csv';
 export const SNAPSHOT_PATH = 'snapshots/latest.json';
@@ -33,36 +33,24 @@ export async function uploadCsv(file: File, filename: string): Promise<UploadedF
 
 export async function getCsv(urlOrPath: string): Promise<string> {
   try {
-    const isUrl = /^https?:\/\//i.test(urlOrPath);
-    const fetchDirect = async (url: string) => {
-      const res = await fetch(url);
-      if (!res.ok) {
-        const message = res.status === 404 ? 'File not found or expired' : `Failed to download CSV: ${res.status} ${res.statusText}`;
-        throw new Error(message);
-      }
-      const buffer = await res.arrayBuffer();
-      const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-      if (!utf8.includes('\uFFFD')) {
-        return utf8;
-      }
-      try {
-        return new TextDecoder('windows-1252').decode(buffer);
-      } catch {
-        return utf8;
-      }
-    };
-
-    if (isUrl) {
-      return await fetchDirect(urlOrPath);
-    }
-
-    const metadata = await headObject(urlOrPath);
-    if (!metadata?.downloadUrl) {
-      throw new Error('File not found or expired');
-    }
-    return await fetchDirect(metadata.downloadUrl);
+    return decodeCsvBuffer(await getObjectBuffer(urlOrPath));
   } catch (err) {
     console.error('[storage:getCsv] Failed to read CSV', err);
     throw err;
+  }
+}
+
+function decodeCsvBuffer(buffer: ArrayBuffer | ArrayBufferView) {
+  const bytes = ArrayBuffer.isView(buffer)
+    ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+    : buffer;
+  const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  if (!utf8.includes('\uFFFD')) {
+    return utf8;
+  }
+  try {
+    return new TextDecoder('windows-1252').decode(bytes);
+  } catch {
+    return utf8;
   }
 }

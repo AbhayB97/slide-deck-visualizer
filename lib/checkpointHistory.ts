@@ -1,4 +1,4 @@
-import { headObject, isObjectNotFound, putObject } from '@/lib/objectStorage';
+import { getObjectJson, isObjectNotFound, putObject } from '@/lib/objectStorage';
 import { getCheckpointInfo } from '@/lib/checkpoints';
 import type { Snapshot } from '@/lib/processCsvSnapshot';
 
@@ -42,10 +42,7 @@ function buildCheckpointPath(checkpointId: string): string {
 
 export async function fetchCheckpointIndex(): Promise<CheckpointIndex> {
   try {
-    const metadata = await headObject(CHECKPOINT_INDEX_PATH);
-    const response = await fetch(metadata.downloadUrl);
-    if (!response.ok) return { checkpoints: [] };
-    const data = (await response.json()) as CheckpointIndex;
+    const data = await getObjectJson<CheckpointIndex>(CHECKPOINT_INDEX_PATH);
     return {
       checkpoints: Array.isArray(data?.checkpoints) ? data.checkpoints : [],
     };
@@ -68,10 +65,7 @@ async function saveCheckpointIndex(index: CheckpointIndex): Promise<CheckpointIn
 
 export async function fetchCheckpointRecord(checkpointId: string): Promise<CheckpointRecord | null> {
   try {
-    const metadata = await headObject(buildCheckpointPath(checkpointId));
-    const res = await fetch(metadata.downloadUrl);
-    if (!res.ok) return null;
-    const data = (await res.json()) as CheckpointRecord;
+    const data = await getObjectJson<CheckpointRecord>(buildCheckpointPath(checkpointId));
     if (!data || data.checkpointId !== checkpointId) return null;
     return {
       ...data,
