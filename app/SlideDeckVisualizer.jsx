@@ -2,12 +2,7 @@
 
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
-import {
-  LayoutGrid,
-  List,
-  Loader2,
-  Dice5,
-} from "lucide-react";
+import { Loader2, Dice5 } from "lucide-react";
 import { TopNav } from "@/components/ui/TopNav";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -15,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { Avatar } from "@/components/ui/Avatar";
+import { DotGridBackground } from "@/components/ui/DotGridBackground";
 
 const NO_SNAPSHOT_MESSAGE =
   "No snapshot available. Ask the admin to upload this week's CSV.";
@@ -120,7 +116,6 @@ export default function SlideDeckVisualizer() {
   const [deltaByName, setDeltaByName] = useState({});
   const [loadingMetrics, setLoadingMetrics] = useState(false);
 
-  const [viewMode, setViewMode] = useState("grid");
   const [selectedUser, setSelectedUser] = useState(null);
   const [masterCount, setMasterCount] = useState(0);
 
@@ -382,9 +377,6 @@ export default function SlideDeckVisualizer() {
 
   const sortedData = [...data].sort((a, b) => b.value - a.value);
   const totalTasks = sortedData.reduce((a, b) => a + b.value, 0);
-  const averageTasks = sortedData.length
-    ? (totalTasks / sortedData.length).toFixed(1)
-    : 0;
   const minValue = sortedData.length
     ? Math.min(...sortedData.map((row) => row.value))
     : 0;
@@ -446,22 +438,22 @@ export default function SlideDeckVisualizer() {
   /* ---------- UI States ---------- */
   if (loadingSnapshot || loadingHistory) {
     return (
-      <div className="min-h-screen bg-background">
+      <DotGridBackground>
         <TopNav />
         <div
-          className="flex min-h-[70vh] items-center justify-center text-foreground/60"
+          className="flex min-h-[70vh] items-center justify-center text-white/70"
           role="status"
           aria-live="polite"
         >
           <Loader2 className="animate-spin mr-3" /> Loading dashboard...
         </div>
-      </div>
+      </DotGridBackground>
     );
   }
 
   if (error && !statusNotice) {
     return (
-      <div className="min-h-screen bg-background">
+      <DotGridBackground>
         <TopNav />
         <div className="flex min-h-[70vh] items-center justify-center px-6" aria-live="assertive">
           <Card className="max-w-lg p-8 text-center">
@@ -476,13 +468,13 @@ export default function SlideDeckVisualizer() {
             </Button>
           </Card>
         </div>
-      </div>
+      </DotGridBackground>
     );
   }
 
   if (statusNotice?.type === "missing" && statusNotice?.message) {
     return (
-      <div className="min-h-screen bg-background">
+      <DotGridBackground>
         <TopNav />
         <div className="flex min-h-[70vh] items-center justify-center px-6">
           <Card className="max-w-lg p-8 text-center">
@@ -498,13 +490,13 @@ export default function SlideDeckVisualizer() {
             </Button>
           </Card>
         </div>
-      </div>
+      </DotGridBackground>
     );
   }
 
   /* ---------- MAIN UI ---------- */
   return (
-    <div className="min-h-screen bg-background">
+    <DotGridBackground>
       <TopNav />
       <div className="flex justify-center px-6 py-6">
         <div className="w-full max-w-[1920px] flex flex-col gap-6">
@@ -598,31 +590,9 @@ export default function SlideDeckVisualizer() {
                   {data.length} people • {totalTasks} incomplete items
                 </div>
               </div>
-              <div className="flex gap-2 flex-wrap items-center">
-                <Button
-                  size="sm"
-                  variant={viewMode === "grid" ? "primary" : "outline"}
-                  onClick={() => setViewMode("grid")}
-                  aria-pressed={viewMode === "grid"}
-                  aria-label="Show heatmap view"
-                >
-                  <LayoutGrid size={16} /> Heatmap
-                </Button>
-                <Button
-                  size="sm"
-                  variant={viewMode === "summary" ? "primary" : "outline"}
-                  onClick={() => setViewMode("summary")}
-                  aria-pressed={viewMode === "summary"}
-                  aria-label="Show summary view"
-                >
-                  <List size={16} /> Summary
-                </Button>
-              </div>
-
-              {viewMode === "grid" && (
-                <div className="overflow-x-auto pb-2">
-                  {sortedData.length ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
+              <div className="overflow-x-auto pb-2">
+                {sortedData.length ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
                     {sortedData.map((p) => {
                       const color = heatmapColors(p.value, minValue, maxValue);
                       const delta = deltaByName?.[normalizeNameKey(p.name)] ?? 0;
@@ -667,36 +637,18 @@ export default function SlideDeckVisualizer() {
                         </div>
                       );
                     })}
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-border bg-surface-muted px-5 py-10 text-center text-sm text-foreground/50">
-                      No incomplete users in this snapshot.
-                    </div>
-                  )}
-                  {loadingMetrics && (
-                    <div className="mt-3 text-xs text-foreground/50">
-                      Loading week-over-week changes...
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {viewMode === "summary" && (
-                <div className="space-y-2">
-                  <h3 className="text-lg font-bold mb-2 text-foreground">Summary</h3>
-                  <p className="text-foreground/80">
-                    <span className="font-semibold">Total Incomplete Items:</span> {totalTasks}
-                  </p>
-
-                  <p className="text-foreground/80">
-                    <span className="font-semibold">Users With Incomplete Items:</span> {data.length}
-                  </p>
-
-                  <p className="text-foreground/80">
-                    <span className="font-semibold">Average Per Person:</span> {averageTasks}
-                  </p>
-                </div>
-              )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border bg-surface-muted px-5 py-10 text-center text-sm text-foreground/50">
+                    No incomplete users in this snapshot.
+                  </div>
+                )}
+                {loadingMetrics && (
+                  <div className="mt-3 text-xs text-foreground/50">
+                    Loading week-over-week changes...
+                  </div>
+                )}
+              </div>
             </Card>
 
             <Card className="p-6 flex items-center justify-between gap-4">
@@ -723,7 +675,7 @@ export default function SlideDeckVisualizer() {
           />
         </div>
       </div>
-    </div>
+    </DotGridBackground>
   );
 }
 
