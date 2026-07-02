@@ -1,13 +1,19 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
 import {
   LayoutGrid,
   List,
-  AlertCircle,
   Loader2,
+  Dice5,
 } from "lucide-react";
+import { TopNav } from "@/components/ui/TopNav";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 
 const NO_SNAPSHOT_MESSAGE =
   "No snapshot available. Ask the admin to upload this week's CSV.";
@@ -439,296 +445,274 @@ export default function SlideDeckVisualizer() {
   /* ---------- UI States ---------- */
   if (loadingSnapshot || loadingHistory) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center text-gray-600"
-        role="status"
-        aria-live="polite"
-      >
-        <Loader2 className="animate-spin mr-3" /> Loading dashboard...
+      <div className="min-h-screen bg-background">
+        <TopNav />
+        <div
+          className="flex min-h-[70vh] items-center justify-center text-foreground/60"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="animate-spin mr-3" /> Loading dashboard...
+        </div>
       </div>
     );
   }
 
   if (error && !statusNotice) {
     return (
-      <div
-        className="min-h-screen flex flex-col items-center justify-center text-red-700"
-        aria-live="assertive"
-      >
-        <AlertCircle size={48} className="mb-4" />
-        <p className="text-xl font-bold">Cannot load dashboard</p>
-        <p className="mt-2">{error}</p>
-        <p className="text-sm mt-4 text-gray-500">
-          Make sure an admin uploaded a CSV via <code>/admin/upload</code>.
-        </p>
-        <button
-          onClick={loadHistory}
-          className="mt-6 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800"
-          aria-label="Retry loading dashboard"
-        >
-          Retry
-        </button>
+      <div className="min-h-screen bg-background">
+        <TopNav />
+        <div className="flex min-h-[70vh] items-center justify-center px-6" aria-live="assertive">
+          <Card className="max-w-lg p-8 text-center">
+            <StatusBanner tone="danger" title="Cannot load dashboard">
+              {error}
+            </StatusBanner>
+            <p className="text-sm mt-4 text-foreground/50">
+              Make sure an admin uploaded a CSV via <code>/admin/upload</code>.
+            </p>
+            <Button onClick={loadHistory} aria-label="Retry loading dashboard" className="mt-6">
+              Retry
+            </Button>
+          </Card>
+        </div>
       </div>
     );
   }
 
   if (statusNotice?.type === "missing" && statusNotice?.message) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-gray-700">
-        <AlertCircle size={48} className="mb-4 text-amber-500" />
-        <p className="text-xl font-bold text-center max-w-xl">{statusNotice.message}</p>
-        <p className="mt-2 text-center text-gray-500 max-w-xl">
-          We could not load the latest snapshot. Check with an admin and try again.
-        </p>
-        <button
-          onClick={() => loadSnapshot(selectedWeek ?? null)}
-          className="mt-6 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-800"
-          aria-label="Retry loading snapshot"
-        >
-          Retry
-        </button>
+      <div className="min-h-screen bg-background">
+        <TopNav />
+        <div className="flex min-h-[70vh] items-center justify-center px-6">
+          <Card className="max-w-lg p-8 text-center">
+            <StatusBanner tone="warning" title={statusNotice.message}>
+              We could not load the latest snapshot. Check with an admin and try again.
+            </StatusBanner>
+            <Button
+              onClick={() => loadSnapshot(selectedWeek ?? null)}
+              aria-label="Retry loading snapshot"
+              className="mt-6"
+            >
+              Retry
+            </Button>
+          </Card>
+        </div>
       </div>
     );
   }
 
   /* ---------- MAIN UI ---------- */
   return (
-    <div className="min-h-screen bg-gray-100 px-6 py-6 flex justify-center font-sans">
-      <div className="w-full max-w-[1920px] flex flex-col gap-6">
-        {/* HEADER */}
-        <div className="bg-white px-6 py-4 rounded-2xl shadow-sm border flex flex-col gap-3">
-          <div className="flex flex-col xl:flex-row justify-between gap-3">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Security Awareness Dashboard
-              </h1>
-              <div className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-2">
-                {uploadedLabel && <span>Uploaded: {uploadedLabel}</span>}
-                <span className="mx-1 text-gray-300">|</span>
-                <span>Total Items: {totalTasks}</span>
-                <span className="mx-1 text-gray-300">|</span>
-                <span>Total People: {masterCount}</span>
-                {snapshot?.weekId && (
-                  <>
-                    <span className="mx-1 text-gray-300">|</span>
-                    <span className="font-medium text-gray-700">
-                      Week: {snapshot.weekId}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
+    <div className="min-h-screen bg-background">
+      <TopNav />
+      <div className="flex justify-center px-6 py-6">
+        <div className="w-full max-w-[1920px] flex flex-col gap-6">
+          {/* HEADER */}
+          <Card className="px-6 py-4 flex flex-col gap-3">
+            <PageHeader
+              title="Security Awareness Dashboard"
+              description={[
+                uploadedLabel && `Uploaded: ${uploadedLabel}`,
+                `Total Items: ${totalTasks}`,
+                `Total People: ${masterCount}`,
+                snapshot?.weekId && `Week: ${snapshot.weekId}`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              actions={
+                <>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-foreground/60" htmlFor="week-select">
+                      Week
+                    </label>
+                    <select
+                      id="week-select"
+                      value={selectedWeek ?? ""}
+                      onChange={handleWeekChange}
+                      disabled={loadingHistory || loadingSnapshot || !history.length}
+                      className="border border-border rounded-md px-3 py-2 text-sm text-foreground bg-surface shadow-sm"
+                      aria-label="Select week to view snapshot"
+                    >
+                      {history.length === 0 && <option value="">Latest</option>}
+                      {orderedWeeks.map((w) => (
+                        <option key={w.weekId} value={w.weekId}>
+                          {w.weekId} ({w.totalIncomplete ?? w.offenderCount ?? 0} incomplete)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button variant="outline" onClick={loadHistory} aria-label="Refresh data">
+                    Refresh
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={exportSnapshot}
+                    aria-label="Export snapshot as JSON"
+                  >
+                    Export JSON
+                  </Button>
+                </>
+              }
+            />
 
-            <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 min-w-[220px]">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <div className="rounded-xl border border-success/20 bg-success-soft px-4 py-3 min-w-[220px]">
+                <p className="text-xs font-semibold uppercase tracking-wide text-success">
                   100% Completion Streak
                 </p>
-                <p className="mt-1 text-2xl font-bold text-emerald-900">{perfectWeekStreak}</p>
+                <p className="mt-1 text-2xl font-bold text-foreground">{perfectWeekStreak}</p>
               </div>
               {perfectWeekStreak === 0 && (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 min-w-[220px]">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">
+                <div className="rounded-xl border border-danger/20 bg-danger-soft px-4 py-3 min-w-[220px]">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-danger">
                     Days Since Last 100% Completion
                   </p>
-                  <p className="mt-1 text-2xl font-bold text-rose-900">
+                  <p className="mt-1 text-2xl font-bold text-foreground">
                     {daysSinceLastPerfectWeek ?? "--"}
                   </p>
                 </div>
               )}
-              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 min-w-[180px]">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+              <div className="rounded-xl border border-border bg-surface-muted px-4 py-3 min-w-[180px]">
+                <p className="text-xs font-semibold uppercase tracking-wide text-foreground/60">
                   Perfect Weeks Total
                 </p>
-                <p className="mt-1 text-2xl font-bold text-gray-900">{perfectWeeksCount}</p>
+                <p className="mt-1 text-2xl font-bold text-foreground">{perfectWeeksCount}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-600" htmlFor="week-select">
-                  Week
-                </label>
-                <select
-                  id="week-select"
-                  value={selectedWeek ?? ""}
-                  onChange={handleWeekChange}
-                  disabled={loadingHistory || loadingSnapshot || !history.length}
-                  className="border rounded-md px-3 py-2 text-sm text-gray-800 bg-white shadow-sm"
-                  aria-label="Select week to view snapshot"
+            </div>
+          </Card>
+
+          {statusNotice?.type === "empty" && (
+            <StatusBanner tone="success" title="100% completion rate">
+              {statusNotice.message}
+            </StatusBanner>
+          )}
+
+          {/* MAIN CONTENT */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* High Risk Panel */}
+            <Card className="p-6 flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-foreground">High Risk Users</h2>
+                <div className="text-sm text-foreground/60">
+                  {data.length} people • {totalTasks} incomplete items
+                </div>
+              </div>
+              <div className="flex gap-2 flex-wrap items-center">
+                <Button
+                  size="sm"
+                  variant={viewMode === "grid" ? "primary" : "outline"}
+                  onClick={() => setViewMode("grid")}
+                  aria-pressed={viewMode === "grid"}
+                  aria-label="Show heatmap view"
                 >
-                  {history.length === 0 && <option value="">Latest</option>}
-                  {orderedWeeks.map((w) => (
-                    <option key={w.weekId} value={w.weekId}>
-                      {w.weekId} ({w.totalIncomplete ?? w.offenderCount ?? 0} incomplete)
-                    </option>
-                  ))}
-                </select>
+                  <LayoutGrid size={16} /> Heatmap
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === "summary" ? "primary" : "outline"}
+                  onClick={() => setViewMode("summary")}
+                  aria-pressed={viewMode === "summary"}
+                  aria-label="Show summary view"
+                >
+                  <List size={16} /> Summary
+                </Button>
               </div>
-              <button
-                type="button"
-                onClick={loadHistory}
-                aria-label="Refresh data"
-                className="px-4 py-2 rounded-lg border bg-gray-50 text-gray-700 hover:bg-gray-100"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={exportSnapshot}
-                aria-label="Export snapshot as JSON"
-                className="px-4 py-2 rounded-lg border bg-white text-gray-800 hover:bg-gray-50"
-              >
-                Export Snapshot JSON
-              </button>
-            </div>
-          </div>
-        </div>
 
-        {statusNotice?.type === "empty" && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-6 py-5 shadow-sm">
-            <div className="flex items-start gap-3">
-              <AlertCircle size={20} className="mt-0.5 shrink-0 text-emerald-600" />
-              <div>
-                <p className="text-base font-semibold text-emerald-900">100% completion rate</p>
-                <p className="mt-1 text-sm text-emerald-800">{statusNotice.message}</p>
-              </div>
-            </div>
-          </div>
-        )}
+              {viewMode === "grid" && (
+                <div className="overflow-x-auto pb-2">
+                  {sortedData.length ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
+                    {sortedData.map((p) => {
+                      const color = heatmapColors(p.value, minValue, maxValue);
+                      const delta = deltaByName?.[normalizeNameKey(p.name)] ?? 0;
+                      const deltaLabel =
+                        delta > 0 ? `▲ ${delta}` : delta < 0 ? `▼ ${Math.abs(delta)}` : "0";
+                      const deltaTone = delta > 0 ? "danger" : delta < 0 ? "success" : "neutral";
 
-        {/* MAIN CONTENT */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {/* High Risk Panel */}
-          <div className="bg-white p-6 rounded-2xl shadow-lg border flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">High Risk Users</h2>
-              <div className="text-sm text-gray-600">
-                {data.length} people • {totalTasks} incomplete items
-              </div>
-            </div>
-            <div className="flex gap-3 flex-wrap items-center">
-              <button
-                onClick={() => setViewMode("grid")}
-                aria-pressed={viewMode === "grid"}
-                aria-label="Show heatmap view"
-                className={`px-3 py-2 rounded-lg ${
-                  viewMode === "grid"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                <LayoutGrid size={16} /> Heatmap
-              </button>
-              <button
-                onClick={() => setViewMode("summary")}
-                aria-pressed={viewMode === "summary"}
-                aria-label="Show summary view"
-                className={`px-3 py-2 rounded-lg ${
-                  viewMode === "summary"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                <List size={16} /> Summary
-              </button>
-            </div>
-
-            {viewMode === "grid" && (
-              <div className="overflow-x-auto pb-2">
-                {sortedData.length ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-4 min-w-[320px]">
-                  {sortedData.map((p) => {
-                    const color = heatmapColors(p.value, minValue, maxValue);
-                    const delta = deltaByName?.[normalizeNameKey(p.name)] ?? 0;
-                    const deltaLabel =
-                      delta > 0 ? `▲ ${delta}` : delta < 0 ? `▼ ${Math.abs(delta)}` : "0";
-                    const deltaClass =
-                      delta > 0
-                        ? "bg-red-100 text-red-800 border-red-200"
-                        : delta < 0
-                          ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                          : "bg-gray-100 text-gray-700 border-gray-200";
-
-                    return (
-                      <div
-                        key={p.name}
-                        onClick={() => setSelectedUser(p.name)}
-                        onKeyDown={(e) => handleTileKeyDown(e, p.name)}
-                        tabIndex={0}
-                        role="button"
-                        aria-label={`Open user details for ${shortName(p.name)}`}
-                        className="p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
-                        style={{ backgroundColor: color.bg, borderColor: color.border }}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
-                          <div className="flex items-center gap-2">
-                            {metricsPrevWeekId && !loadingMetrics && (
-                              <span
-                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${deltaClass}`}
-                                title={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
-                                aria-label={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
-                              >
-                                {deltaLabel}
-                              </span>
-                            )}
-                            <span className="font-bold text-xl text-gray-900">{p.value}</span>
+                      return (
+                        <div
+                          key={p.name}
+                          onClick={() => setSelectedUser(p.name)}
+                          onKeyDown={(e) => handleTileKeyDown(e, p.name)}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`Open user details for ${shortName(p.name)}`}
+                          className="p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                          style={{ backgroundColor: color.bg, borderColor: color.border }}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
+                            <div className="flex items-center gap-2">
+                              {metricsPrevWeekId && !loadingMetrics && (
+                                <Badge
+                                  tone={deltaTone}
+                                  title={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
+                                  aria-label={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
+                                >
+                                  {deltaLabel}
+                                </Badge>
+                              )}
+                              <span className="font-bold text-xl text-gray-900">{p.value}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-5 py-10 text-center text-sm text-gray-500">
-                    No incomplete users in this snapshot.
-                  </div>
-                )}
-                {loadingMetrics && (
-                  <div className="mt-3 text-xs text-gray-500">
-                    Loading week-over-week changes...
-                  </div>
-                )}
+                      );
+                    })}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-border bg-surface-muted px-5 py-10 text-center text-sm text-foreground/50">
+                      No incomplete users in this snapshot.
+                    </div>
+                  )}
+                  {loadingMetrics && (
+                    <div className="mt-3 text-xs text-foreground/50">
+                      Loading week-over-week changes...
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {viewMode === "summary" && (
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold mb-2 text-foreground">Summary</h3>
+                  <p className="text-foreground/80">
+                    <span className="font-semibold">Total Incomplete Items:</span> {totalTasks}
+                  </p>
+
+                  <p className="text-foreground/80">
+                    <span className="font-semibold">Users With Incomplete Items:</span> {data.length}
+                  </p>
+
+                  <p className="text-foreground/80">
+                    <span className="font-semibold">Average Per Person:</span> {averageTasks}
+                  </p>
+                </div>
+              )}
+            </Card>
+
+            <Card className="p-6 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-foreground">Weekly Draw</h2>
+                <p className="text-sm text-foreground/60">
+                  Open the Mega-Grid draw to pick a random eligible user.
+                </p>
               </div>
-            )}
-
-            {viewMode === "summary" && (
-              <div className="space-y-2">
-                <h3 className="text-lg font-bold mb-2">Summary</h3>
-                <p className="text-gray-700">
-                  <span className="font-semibold">Total Incomplete Items:</span> {totalTasks}
-                </p>
-
-                <p className="text-gray-700">
-                  <span className="font-semibold">Users With Incomplete Items:</span> {data.length}
-                </p>
-
-                <p className="text-gray-700">
-                  <span className="font-semibold">Average Per Person:</span> {averageTasks}
-                </p>
-              </div>
-            )}
+              <Link
+                href="/draw/slot-machine"
+                className="inline-flex items-center gap-2 rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+              >
+                <Dice5 size={16} /> Open Mega-Grid Draw
+              </Link>
+            </Card>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl shadow-lg border flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">Weekly Draw</h2>
-              <p className="text-sm text-gray-600">
-                Open the Mega-Grid draw to pick a random eligible user.
-              </p>
-            </div>
-            <Link
-              href="/draw/slot-machine"
-              className="text-sm px-4 py-2 rounded-md bg-emerald-600 text-white font-semibold shadow-sm hover:bg-emerald-700"
-            >
-              Open Mega-Grid Draw
-            </Link>
-          </div>
+          {/* ---------- USER MODAL ---------- */}
+          <UserModal
+            userName={selectedUser}
+            sessions={selectedSessions}
+            onClose={() => setSelectedUser(null)}
+          />
         </div>
-
-        {/* ---------- USER MODAL ---------- */}
-        <UserModal
-          userName={selectedUser}
-          sessions={selectedSessions}
-          onClose={() => setSelectedUser(null)}
-        />
       </div>
     </div>
   );
@@ -736,6 +720,39 @@ export default function SlideDeckVisualizer() {
 
 /* ---------- Modal Component ---------- */
 function UserModal({ userName, sessions, onClose }) {
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!userName) return;
+    closeButtonRef.current?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [userName, onClose]);
+
   if (!userName) return null;
 
   const headingId = "user-modal-title";
@@ -746,20 +763,27 @@ function UserModal({ userName, sessions, onClose }) {
       role="dialog"
       aria-modal="true"
       aria-labelledby={headingId}
+      onClick={onClose}
     >
-      <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl border border-gray-300 focus:outline-none">
+      <Card
+        ref={dialogRef}
+        className="p-6 w-full max-w-2xl mx-4 focus:outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
-          <h2 id={headingId} className="text-2xl font-bold text-gray-900">
+          <h2 id={headingId} className="text-2xl font-bold text-foreground">
             {userName}
           </h2>
-          <button
+          <Button
+            ref={closeButtonRef}
+            variant="outline"
+            size="sm"
             onClick={onClose}
-            className="text-sm px-3 py-1 rounded-md bg-gray-200 hover:bg-gray-300 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
             aria-label="Close user details"
           >
             Close
-          </button>
+          </Button>
         </div>
 
         {/* Session list */}
@@ -767,28 +791,28 @@ function UserModal({ userName, sessions, onClose }) {
           {sessions.map((s, i) => (
             <div
               key={i}
-              className="p-4 rounded-lg border border-gray-300 bg-gray-50 hover:bg-gray-100 transition shadow-sm text-gray-900"
+              className="p-4 rounded-lg border border-border bg-surface-muted hover:bg-border/40 transition text-foreground"
             >
-              <p className="font-semibold text-gray-900 mb-1">
+              <p className="font-semibold text-foreground mb-1">
                 {s.title}
               </p>
 
-              <p className="text-sm text-gray-700">
+              <p className="text-sm text-foreground/70">
                 <span className="font-medium">Status:</span> {s.status}
               </p>
 
-              <p className="text-sm text-gray-700">
+              <p className="text-sm text-foreground/70">
                 <span className="font-medium">Sent:</span> {s.sentDate}
               </p>
 
-              <p className="text-sm text-gray-700">
+              <p className="text-sm text-foreground/70">
                 <span className="font-medium">Pending:</span>{" "}
                 {pendingDays(s.sentDate)} days
               </p>
             </div>
           ))}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

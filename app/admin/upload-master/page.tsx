@@ -1,7 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
+import { TopNav } from "@/components/ui/TopNav";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { StatusBanner } from "@/components/ui/StatusBanner";
 
 type UploadResponse = {
   success: boolean;
@@ -175,158 +179,132 @@ export default function AdminUploadMasterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-start justify-center px-4 py-12">
-      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-gray-200 p-8 space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-gray-400">Admin</p>
-            <h1 className="text-3xl font-bold text-gray-900">Upload Master List</h1>
-            <p className="text-sm text-gray-600 mt-1">
-              Upload a monthly All_users.csv, map name columns, and save to the master list.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link
-              href="/admin/upload"
-              className="text-sm text-blue-700 underline"
-            >
-              Upload weekly CSV
-            </Link>
-            <Link
-              href="/admin/upload-photos"
-              className="text-sm text-blue-700 underline"
-            >
-              Upload photos
-            </Link>
-          </div>
-        </div>
+    <div className="min-h-screen bg-background">
+      <TopNav />
+      <div className="flex items-start justify-center px-4 py-12">
+        <Card className="w-full max-w-3xl p-8 space-y-6">
+          <PageHeader
+            eyebrow="Admin"
+            title="Upload Master List"
+            description="Upload a monthly All_users.csv, map name columns, and save to the master list."
+          />
 
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">Current Master File</p>
-              <p className="text-sm text-gray-700 mt-1">
-                Last updated:{" "}
-                {loadingMasterInfo
-                  ? "Loading..."
-                  : masterInfo?.uploadedAt
-                    ? new Date(masterInfo.uploadedAt).toLocaleString()
-                    : "No master file yet"}
-              </p>
-              {!loadingMasterInfo && masterInfo?.hasFile ? (
-                <p className="text-xs text-gray-500 mt-1">
-                  {masterInfo.count} records in the normalized master file
+          <div className="rounded-lg border border-border bg-surface-muted p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Current Master File</p>
+                <p className="text-sm text-foreground/70 mt-1">
+                  Last updated:{" "}
+                  {loadingMasterInfo
+                    ? "Loading..."
+                    : masterInfo?.uploadedAt
+                      ? new Date(masterInfo.uploadedAt).toLocaleString()
+                      : "No master file yet"}
                 </p>
-              ) : null}
-            </div>
-            {masterInfo?.hasFile ? (
-              <a
-                href="/api/master-file/export"
-                className="inline-flex items-center justify-center px-4 py-2 rounded-md border border-gray-300 bg-white text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-100"
-              >
-                Export Current Master
-              </a>
-            ) : (
-              <span className="inline-flex items-center justify-center px-4 py-2 rounded-md border border-gray-200 bg-gray-100 text-sm font-semibold text-gray-400">
-                Export Current Master
-              </span>
-            )}
-          </div>
-        </div>
-
-        <form onSubmit={handleUpload} className="space-y-4">
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700">CSV file</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="mt-2 block w-full text-sm text-gray-700"
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={isUploading}
-            className="inline-flex items-center px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-semibold shadow-sm hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isUploading ? "Uploading..." : "Upload to Blob"}
-          </button>
-        </form>
-
-        {uploadResult && (
-          <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-green-800">Upload successful</p>
-              <p className="text-sm text-green-900 break-all">URL: {uploadResult.fileUrl}</p>
-              <p className="text-xs text-green-900">
-                Uploaded at: {new Date(uploadResult.uploadedAt).toLocaleString()}
-              </p>
-            </div>
-
-            <div className="rounded-md border border-gray-200 bg-white p-3">
-              <div className="flex justify-between items-center mb-2">
-                <p className="text-sm font-semibold text-gray-900">Header mapping</p>
-                {loadingHeaders && <p className="text-xs text-gray-500">Loading headers...</p>}
-              </div>
-              {headers.length === 0 ? (
-                <p className="text-xs text-gray-600">
-                  Headers could not be detected. Please re-upload or check the file format.
-                </p>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {([
-                      { key: "email", label: "User Email Address" },
-                      { key: "fullName", label: "Full Name (combined)" },
-                      { key: "firstName", label: "First Name" },
-                      { key: "lastName", label: "Last Name" },
-                    ] as const).map((field) => (
-                      <label key={field.key} className="text-sm text-gray-700 flex flex-col gap-1">
-                        <span className="font-medium">{field.label}</span>
-                        <select
-                          value={mapping[field.key]}
-                          onChange={(e) => updateMapping(field.key, e.target.value)}
-                          className="border rounded-md px-3 py-2 text-sm text-gray-800 bg-white shadow-sm"
-                        >
-                          <option value="">Select column</option>
-                          {headers.map((h) => (
-                            <option key={h} value={h}>
-                              {h}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Map the email column, and either a combined Full Name column, or both First Name and Last Name.
+                {!loadingMasterInfo && masterInfo?.hasFile ? (
+                  <p className="text-xs text-foreground/50 mt-1">
+                    {masterInfo.count} records in the normalized master file
                   </p>
-                </>
+                ) : null}
+              </div>
+              {masterInfo?.hasFile ? (
+                <a
+                  href="/api/master-file/export"
+                  className="inline-flex items-center justify-center rounded-lg border border-border bg-surface px-4 py-2 text-sm font-semibold text-foreground shadow-sm hover:bg-surface-muted"
+                >
+                  Export Current Master
+                </a>
+              ) : (
+                <span className="inline-flex items-center justify-center px-4 py-2 rounded-md border border-border bg-surface-muted text-sm font-semibold text-foreground/40">
+                  Export Current Master
+                </span>
               )}
             </div>
-
-            <button
-              type="button"
-              onClick={handleProcess}
-              disabled={isProcessing || !allMapped}
-              className="inline-flex items-center px-3 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {isProcessing ? "Processing..." : "Process CSV Into Master"}
-            </button>
           </div>
-        )}
 
-        {message && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-            <p className="text-sm font-semibold text-blue-800">{message}</p>
-          </div>
-        )}
+          <form onSubmit={handleUpload} className="space-y-4">
+            <label className="block">
+              <span className="text-sm font-medium text-foreground/70">CSV file</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                className="mt-2 block w-full text-sm text-foreground/70"
+              />
+            </label>
+            <Button type="submit" disabled={isUploading}>
+              {isUploading ? "Uploading..." : "Upload File"}
+            </Button>
+          </form>
 
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-            <p className="text-sm font-semibold text-red-800">{error}</p>
-          </div>
-        )}
+          {uploadResult && (
+            <div className="rounded-lg border border-success/20 bg-success-soft p-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-success">Upload successful</p>
+                <p className="text-sm text-foreground/80 break-all">URL: {uploadResult.fileUrl}</p>
+                <p className="text-xs text-foreground/60">
+                  Uploaded at: {new Date(uploadResult.uploadedAt).toLocaleString()}
+                </p>
+              </div>
+
+              <div className="rounded-md border border-border bg-surface p-3">
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-sm font-semibold text-foreground">Header mapping</p>
+                  {loadingHeaders && <p className="text-xs text-foreground/50">Loading headers...</p>}
+                </div>
+                {headers.length === 0 ? (
+                  <p className="text-xs text-foreground/60">
+                    Headers could not be detected. Please re-upload or check the file format.
+                  </p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {([
+                        { key: "email", label: "User Email Address" },
+                        { key: "fullName", label: "Full Name (combined)" },
+                        { key: "firstName", label: "First Name" },
+                        { key: "lastName", label: "Last Name" },
+                      ] as const).map((field) => (
+                        <label key={field.key} className="text-sm text-foreground/70 flex flex-col gap-1">
+                          <span className="font-medium">{field.label}</span>
+                          <select
+                            value={mapping[field.key]}
+                            onChange={(e) => updateMapping(field.key, e.target.value)}
+                            className="border border-border rounded-md px-3 py-2 text-sm text-foreground bg-surface shadow-sm"
+                          >
+                            <option value="">Select column</option>
+                            {headers.map((h) => (
+                              <option key={h} value={h}>
+                                {h}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-foreground/50 mt-2">
+                      Map the email column, and either a combined Full Name column, or both First Name and Last Name.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleProcess}
+                disabled={isProcessing || !allMapped}
+              >
+                {isProcessing ? "Processing..." : "Process CSV Into Master"}
+              </Button>
+            </div>
+          )}
+
+          {message && <StatusBanner tone="info">{message}</StatusBanner>}
+
+          {error && <StatusBanner tone="danger">{error}</StatusBanner>}
+        </Card>
       </div>
     </div>
   );
