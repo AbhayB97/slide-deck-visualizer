@@ -441,7 +441,7 @@ export default function SlideDeckVisualizer() {
       <DotGridBackground>
         <TopNav />
         <div
-          className="flex min-h-[70vh] items-center justify-center text-white/70"
+          className="flex min-h-[70vh] items-center justify-center text-foreground/60"
           role="status"
           aria-live="polite"
         >
