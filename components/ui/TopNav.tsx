@@ -7,9 +7,6 @@ import { ShieldCheck } from "lucide-react";
 const links = [
   { href: "/", label: "Dashboard" },
   { href: "/draw/slot-machine", label: "Draw" },
-  { href: "/admin/upload", label: "Upload CSV" },
-  { href: "/admin/upload-master", label: "Master List" },
-  { href: "/admin/upload-photos", label: "Photos" },
 ];
 
 export function TopNav() {

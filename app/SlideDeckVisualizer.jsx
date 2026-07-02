@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBanner } from "@/components/ui/StatusBanner";
+import { Avatar } from "@/components/ui/Avatar";
 
 const NO_SNAPSHOT_MESSAGE =
   "No snapshot available. Ask the admin to upload this week's CSV.";
@@ -637,12 +638,15 @@ export default function SlideDeckVisualizer() {
                           tabIndex={0}
                           role="button"
                           aria-label={`Open user details for ${shortName(p.name)}`}
-                          className="p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-                          style={{ backgroundColor: color.bg, borderColor: color.border }}
+                          className="flex items-center gap-3 p-3 rounded-xl border border-border bg-surface shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                          style={{ borderLeft: `4px solid ${color.base}` }}
                         >
-                          <div className="flex justify-between items-center">
-                            <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
-                            <div className="flex items-center gap-2">
+                          <Avatar name={p.name} size={40} />
+                          <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
+                            <span className="font-semibold text-foreground truncate">
+                              {shortName(p.name)}
+                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
                               {metricsPrevWeekId && !loadingMetrics && (
                                 <Badge
                                   tone={deltaTone}
@@ -652,7 +656,12 @@ export default function SlideDeckVisualizer() {
                                   {deltaLabel}
                                 </Badge>
                               )}
-                              <span className="font-bold text-xl text-gray-900">{p.value}</span>
+                              <span
+                                className="font-bold text-lg"
+                                style={{ color: color.base }}
+                              >
+                                {p.value}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -772,9 +781,12 @@ function UserModal({ userName, sessions, onClose }) {
       >
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
-          <h2 id={headingId} className="text-2xl font-bold text-foreground">
-            {userName}
-          </h2>
+          <div className="flex items-center gap-3 min-w-0">
+            <Avatar name={userName} size={48} />
+            <h2 id={headingId} className="text-2xl font-bold text-foreground truncate">
+              {userName}
+            </h2>
+          </div>
           <Button
             ref={closeButtonRef}
             variant="outline"
