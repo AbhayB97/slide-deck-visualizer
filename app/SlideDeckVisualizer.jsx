@@ -8,6 +8,7 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
+import { Avatar } from "@/components/ui/Avatar";
 
 const NO_SNAPSHOT_MESSAGE =
   "No snapshot available. Ask the admin to upload this week's CSV.";
@@ -654,22 +655,25 @@ export default function SlideDeckVisualizer() {
                         tabIndex={0}
                         role="button"
                         aria-label={`Open user details for ${shortName(p.name)}`}
-                        className="p-4 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
-                        style={{ backgroundColor: color.bg, borderColor: color.border }}
+                        className="p-4 rounded-xl border border-gray-200 bg-white shadow-sm cursor-pointer hover:shadow-md transition focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
+                        style={{ borderLeft: `4px solid ${color.base}` }}
                       >
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold text-gray-900">{shortName(p.name)}</span>
-                          <div className="flex items-center gap-2">
-                            {metricsPrevWeekId && !loadingMetrics && (
-                              <span
-                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${deltaClass}`}
-                                title={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
-                                aria-label={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
-                              >
-                                {deltaLabel}
-                              </span>
-                            )}
-                            <span className="font-bold text-xl text-gray-900">{p.value}</span>
+                        <div className="flex items-center gap-3">
+                          <Avatar name={p.name} size={40} />
+                          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                            <span className="truncate font-semibold text-gray-900">{shortName(p.name)}</span>
+                            <div className="flex items-center gap-2">
+                              {metricsPrevWeekId && !loadingMetrics && (
+                                <span
+                                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${deltaClass}`}
+                                  title={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
+                                  aria-label={`Change vs ${metricsPrevWeekId}: ${deltaLabel}`}
+                                >
+                                  {deltaLabel}
+                                </span>
+                              )}
+                              <span className="font-bold text-xl" style={{ color: color.base }}>{p.value}</span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -750,9 +754,12 @@ function UserModal({ userName, sessions, onClose }) {
       <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl border border-gray-300 focus:outline-none">
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
-          <h2 id={headingId} className="text-2xl font-bold text-gray-900">
-            {userName}
-          </h2>
+          <div className="flex items-center gap-3">
+            <Avatar name={userName} size={48} />
+            <h2 id={headingId} className="text-2xl font-bold text-gray-900">
+              {userName}
+            </h2>
+          </div>
           <button
             onClick={onClose}
             className="text-sm px-3 py-1 rounded-md bg-gray-200 hover:bg-gray-300 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"

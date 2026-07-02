@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { formatNameForBlob } from "@/lib/avatarNames";
+import {
+  DEFAULT_BLOB_BASE_URL,
+  getAvatarUrls,
+  getFallbackAvatarUrl,
+} from "@/lib/avatarNames";
 
 type ListsResponse = {
   success: boolean;
@@ -17,28 +21,11 @@ type MegaGridProps = {
   blobBaseUrl?: string;
 };
 
-const DEFAULT_BLOB_BASE_URL =
-  "https://f6k4nyqhrlhpfz4k.public.blob.vercel-storage.com";
 const FAST_DELAY_MS = 70;
 const SLOW_DELAY_MS = 320;
 const FAST_PHASE_MS = 3000;
 const TOTAL_DRAW_MS = 5600;
 const REVEAL_DELAY_MS = 450;
-
-function getAvatarUrls(name: string, blobBaseUrl: string) {
-  const formattedName = formatNameForBlob(name);
-  const safeBaseUrl = blobBaseUrl.replace(/\/+$/, "");
-  return [
-    `${safeBaseUrl}/avatars/${formattedName}.jpg`,
-    `${safeBaseUrl}/avatars/${formattedName}.png`,
-  ];
-}
-
-function getFallbackAvatarUrl(name: string) {
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
-    name
-  )}&background=random&color=ffffff&size=256&bold=true`;
-}
 
 function randomIndex(length: number, exclude?: number | null) {
   if (length <= 0) return -1;
