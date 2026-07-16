@@ -752,7 +752,11 @@ export default function SlideDeckVisualizer() {
                     Weeks on High Risk User list
                   </h4>
                   <p className="text-xs text-gray-500 mb-2">
-                    Sorted by consecutive weeks on the list, fewest first
+                    Sorted by consecutive weeks on the list{" "}
+                    <span className="font-bold uppercase text-gray-700">
+                      including this one
+                    </span>
+                    , fewest first
                   </p>
                   {usersByWeeksOnList.length ? (
                     <ul className="divide-y divide-gray-200 rounded-xl border border-gray-200 bg-white">
@@ -855,8 +859,11 @@ function UserModal({ userName, sessions, weeksOnList, onClose }) {
               <p className="text-sm font-semibold text-red-900">
                 Weeks on High Risk User list
               </p>
-              <p className="text-xs text-red-700">
-                Consecutive weekly snapshots including this one
+              <p className="text-sm text-red-800">
+                Consecutive weekly snapshots —{" "}
+                <span className="font-extrabold uppercase tracking-wide">
+                  including this one
+                </span>
               </p>
             </div>
             <span className="text-3xl font-bold text-red-900">{weeksOnList}</span>
