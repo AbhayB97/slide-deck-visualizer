@@ -6,6 +6,7 @@ import { findPrevWeekId, saveWeekMetrics, type WeekMetrics } from '@/lib/metrics
 import { fetchSnapshotByWeek } from '@/lib/snapshots';
 import { getCheckpointInfo } from '@/lib/checkpoints';
 import { upsertCheckpointFromSnapshot } from "@/lib/checkpointHistory";
+import { computeWeekStreaks, saveWeekStreaks } from '@/lib/streaks';
 
 export type ParsedRow = {
   email: string;
@@ -248,6 +249,12 @@ export async function processCsvSnapshot(fileUrl: string, mapping: FieldMapping)
 
   // Persist a per-checkpoint view of "who is on the list" (checkpoint is anchored to Thursdays).
   await upsertCheckpointFromSnapshot(payload);
+
+  // Recompute consecutive-weeks-on-list streaks for this week (handles re-uploads).
+  const streaks = await computeWeekStreaks(weekId, payload);
+  if (streaks) {
+    await saveWeekStreaks(streaks);
+  }
 
   return {
     ...payload,

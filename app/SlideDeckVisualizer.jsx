@@ -113,6 +113,7 @@ export default function SlideDeckVisualizer() {
   const [metricsPrevWeekId, setMetricsPrevWeekId] = useState(null);
   const [deltaByName, setDeltaByName] = useState({});
   const [loadingMetrics, setLoadingMetrics] = useState(false);
+  const [streakByName, setStreakByName] = useState({});
 
   const [viewMode, setViewMode] = useState("grid");
   const [selectedUser, setSelectedUser] = useState(null);
@@ -334,6 +335,34 @@ export default function SlideDeckVisualizer() {
     loadWeekMetrics(selectedWeek);
   }, [selectedWeek, orderedWeeks, snapshot?.snapshotId]);
 
+  async function loadWeekStreaks(weekId) {
+    try {
+      setStreakByName({});
+      const endpoint = weekId
+        ? `/api/streaks?week=${encodeURIComponent(weekId)}`
+        : "/api/streaks";
+      const res = await fetch(endpoint);
+      if (!res.ok) return;
+      const json = await res.json().catch(() => ({}));
+      const users = json?.streaks?.users;
+      if (!json?.success || !Array.isArray(users)) return;
+      const map = {};
+      for (const u of users) {
+        const key = normalizeNameKey(u?.name);
+        if (!key) continue;
+        const weeks = Number(u?.weeksOnList);
+        map[key] = Number.isFinite(weeks) && weeks > 0 ? weeks : 1;
+      }
+      setStreakByName(map);
+    } catch {
+      setStreakByName({});
+    }
+  }
+
+  useEffect(() => {
+    loadWeekStreaks(selectedWeek);
+  }, [selectedWeek, snapshot?.snapshotId]);
+
   async function loadLists() {
     try {
       const res = await fetch("/api/current-lists");
@@ -389,6 +418,16 @@ export default function SlideDeckVisualizer() {
   const selectedSessions = offenderRows.filter(
     (row) => row.fullName === selectedUser
   );
+
+  const usersByWeeksOnList = data
+    .map((p) => ({
+      name: p.name,
+      incompleteCount: p.value,
+      weeksOnList: streakByName[normalizeNameKey(p.name)] ?? 1,
+    }))
+    .sort(
+      (a, b) => a.weeksOnList - b.weeksOnList || a.name.localeCompare(b.name)
+    );
 
   const perfectWeeksCount = useMemo(
     () =>
@@ -707,6 +746,43 @@ export default function SlideDeckVisualizer() {
                 <p className="text-gray-700">
                   <span className="font-semibold">Average Per Person:</span> {averageTasks}
                 </p>
+
+                <div className="pt-3">
+                  <h4 className="font-semibold text-gray-900">
+                    Weeks on High Risk User list
+                  </h4>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Sorted by consecutive weeks on the list, fewest first
+                  </p>
+                  {usersByWeeksOnList.length ? (
+                    <ul className="divide-y divide-gray-200 rounded-xl border border-gray-200 bg-white">
+                      {usersByWeeksOnList.map((u) => (
+                        <li key={u.name}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedUser(u.name)}
+                            aria-label={`Open user details for ${shortName(u.name)}`}
+                            className="w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-gray-50 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
+                          >
+                            <span className="flex min-w-0 items-center gap-3">
+                              <Avatar name={u.name} size={32} />
+                              <span className="truncate font-medium text-gray-900">
+                                {shortName(u.name)}
+                              </span>
+                            </span>
+                            <span className="inline-flex shrink-0 items-center rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-800">
+                              {u.weeksOnList} {u.weeksOnList === 1 ? "week" : "weeks"}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      No users on the High Risk list this week.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -731,6 +807,9 @@ export default function SlideDeckVisualizer() {
         <UserModal
           userName={selectedUser}
           sessions={selectedSessions}
+          weeksOnList={
+            selectedUser ? streakByName[normalizeNameKey(selectedUser)] ?? null : null
+          }
           onClose={() => setSelectedUser(null)}
         />
       </div>
@@ -739,7 +818,7 @@ export default function SlideDeckVisualizer() {
 }
 
 /* ---------- Modal Component ---------- */
-function UserModal({ userName, sessions, onClose }) {
+function UserModal({ userName, sessions, weeksOnList, onClose }) {
   if (!userName) return null;
 
   const headingId = "user-modal-title";
@@ -768,6 +847,21 @@ function UserModal({ userName, sessions, onClose }) {
             Close
           </button>
         </div>
+
+        {/* High Risk streak */}
+        {Number.isFinite(weeksOnList) && weeksOnList > 0 && (
+          <div className="mb-4 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-red-900">
+                Weeks on High Risk User list
+              </p>
+              <p className="text-xs text-red-700">
+                Consecutive weekly snapshots including this one
+              </p>
+            </div>
+            <span className="text-3xl font-bold text-red-900">{weeksOnList}</span>
+          </div>
+        )}
 
         {/* Session list */}
         <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-2">
